@@ -8,7 +8,11 @@
 #include <iostream>
 #include <set>
 
+#if _DEBUG
 constexpr bool enableValidationLayers = true;
+#else
+constexpr bool enableValidationLayers = false;
+#endif
 
 const std::vector<const char *> validationLayers = {
     "VK_LAYER_KHRONOS_validation"
@@ -36,7 +40,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
         //pObjects : Array of Vulkan object handles related to the message
         //objectCount : Number of objects in array
 
-        std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
+        std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl; //TODO: Replace w/ FMT (?)
     }
 
     return VK_FALSE;
@@ -67,6 +71,16 @@ void TsukiEngine::init() {
 
 void TsukiEngine::cleanup() {
 	if (_isInit) {
+
+        destroySwapChain();
+        
+        vkDestroySurfaceKHR(_instance, _surface, nullptr);
+        vkDestroyDevice(_device, nullptr);
+        if (enableValidationLayers) {
+            DestroyDebugUtilsMessengerEXT(_instance, _debugMessenger, nullptr);
+        }
+        vkDestroyInstance(_instance, nullptr);
+
 		glfwDestroyWindow(window);
 		glfwTerminate();
 	}
@@ -97,8 +111,8 @@ void TsukiEngine::initVulkan() {
     createLogicalDevice();
 }
 
-void TsukiEngine::initSwapChain() {
-
+void TsukiEngine::initSwapChain() { //NOTE: Watch out for window resizes later...
+    createSwapChain(WIDTH, HEIGHT);
 }
 
 void TsukiEngine::initCommands() {
@@ -107,6 +121,72 @@ void TsukiEngine::initCommands() {
 
 void TsukiEngine::initSyncStructures() {
 
+}
+
+//HELPERS
+//===================================================================================================================
+void TsukiEngine::createSwapChain(uint32_t width, uint32_t height) {
+    //We need:
+        //1) basic surface capabilities (min/max images in swap chain, min/max width and height of images, etc.)
+        //2) surface formats
+        //3) presentation modes
+
+    SwapChainSupportDetails swapChainSupport = querySwapChainSupport(_physicalDevice);
+
+    VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
+    VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
+    VkExtent2D extent = VkExtent2D(width, height);
+
+    uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1; //It's considered good practice to request one more than the minimum
+    if (swapChainSupport.capabilities.maxImageCount > 0 && imageCount > swapChainSupport.capabilities.maxImageCount) { //Make sure we don't exceed the maximum
+        imageCount = swapChainSupport.capabilities.maxImageCount;
+    }
+
+    VkSwapchainCreateInfoKHR createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+    createInfo.surface = _surface; //Connect our swap chain with our surface (window)
+    createInfo.minImageCount = imageCount;
+    createInfo.imageFormat = surfaceFormat.format;
+    createInfo.imageColorSpace = surfaceFormat.colorSpace;
+    createInfo.imageExtent = extent;
+    createInfo.imageArrayLayers = 1;
+    createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; //We want to render directly to the images in the swap chain
+
+    QueueFamilyIndices indices = findQueueFamilies(_physicalDevice);
+    uint32_t queueFamilyIndices[] = { indices.graphicsFamily.value(), indices.presentFamily.value() };
+
+    if (indices.graphicsFamily != indices.presentFamily) {
+        createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT; //Avoid explicit ownership transfers
+        createInfo.queueFamilyIndexCount = 2;
+        createInfo.pQueueFamilyIndices = queueFamilyIndices;
+    }
+    else {
+        createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE; //images owned by 1 queue family at a time, transfer must be explicit
+        createInfo.queueFamilyIndexCount = 0; // Optional
+        createInfo.pQueueFamilyIndices = nullptr; // Optional
+    }
+    createInfo.preTransform = swapChainSupport.capabilities.currentTransform; //No transformation
+    createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    createInfo.presentMode = presentMode;
+    createInfo.clipped = VK_TRUE;
+    createInfo.oldSwapchain = VK_NULL_HANDLE;
+
+    _swapChainImageFormat = surfaceFormat.format;
+    _swapChainExtent = extent;
+    if (vkCreateSwapchainKHR(_device, &createInfo, nullptr, &_swapChain) != VK_SUCCESS) {
+        throw std::runtime_error("failed to create swap chain!");
+    }
+
+    vkGetSwapchainImagesKHR(_device, _swapChain, &imageCount, nullptr);
+    _swapChainImages.resize(imageCount);
+    vkGetSwapchainImagesKHR(_device, _swapChain, &imageCount, _swapChainImages.data());
+}
+
+void TsukiEngine::destroySwapChain() {
+    vkDestroySwapchainKHR(_device, _swapChain, nullptr);
+    for (int i = 0; i < _swapChainImageViews.size(); ++i) { //TODO: Optimize?
+        vkDestroyImageView(_device, _swapChainImageViews[i], nullptr);
+    }
 }
 
 //VULKAN SETUP (ADAPTED FROM VULKAN-TUTORIAL)
@@ -206,9 +286,7 @@ void TsukiEngine::createLogicalDevice() {
         queueCreateInfos.push_back(queueCreateInfo);
     }
 
-    //TODO: Add new features here
     //Device features
-
     VkPhysicalDeviceFeatures2 features2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
     features2.features.samplerAnisotropy = VK_TRUE;
 
@@ -222,7 +300,6 @@ void TsukiEngine::createLogicalDevice() {
     VkPhysicalDeviceExtendedDynamicStateFeaturesEXT eds = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT };
     eds.extendedDynamicState = VK_TRUE;
 
-    // Chain them
     features2.pNext = &vk11;
     vk11.pNext = &vk13;
     vk13.pNext = &eds;
@@ -311,6 +388,13 @@ VkResult TsukiEngine::createDebugUtilsMessengerEXT(VkInstance instance, const Vk
     }
     else {
         return VK_ERROR_EXTENSION_NOT_PRESENT;
+    }
+}
+
+void TsukiEngine::DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks *pAllocator) {
+    auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
+    if (func != nullptr) {
+        func(instance, debugMessenger, pAllocator);
     }
 }
 
@@ -421,4 +505,25 @@ SwapChainSupportDetails TsukiEngine::querySwapChainSupport(VkPhysicalDevice devi
     }
 
     return details;
+}
+
+VkSurfaceFormatKHR TsukiEngine::chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR> &availableFormats) {
+    for (const auto &availableFormat : availableFormats) {
+        if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB && availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+            return availableFormat;
+        }
+    }
+
+    return availableFormats[0];
+}
+
+VkPresentModeKHR TsukiEngine::chooseSwapPresentMode(const std::vector<VkPresentModeKHR> &availablePresentModes) {
+    for (const auto &availablePresentMode : availablePresentModes) {
+        if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
+            return availablePresentMode;
+        }
+    }
+
+    //FIFO is the only present mode guaranteed to be available
+    return VK_PRESENT_MODE_FIFO_KHR;
 }

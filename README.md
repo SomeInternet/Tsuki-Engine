@@ -1,7 +1,7 @@
 
 Tsuki Engine
 =====================
-T Fong `someinternetboi`  
+T Fong `SomeInternetBoi`  
 [My Website](tzfong.com), [My LinkedIn](https://www.linkedin.com/in/tzfong/)
 
 A light Vulkan-CUDA interop pathtracer engine.

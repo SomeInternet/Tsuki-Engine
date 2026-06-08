@@ -28,6 +28,13 @@ public:
 	VkDevice _device; //Logical device
 	VkSurfaceKHR _surface; //Vulkan surface
 
+	//Swapchain handles
+	VkSwapchainKHR _swapChain;
+	VkFormat _swapChainImageFormat;
+	std::vector<VkImage> _swapChainImages;
+	std::vector<VkImageView> _swapChainImageViews;
+	VkExtent2D _swapChainExtent;
+
 private:
 
 	void initVulkan();
@@ -35,19 +42,28 @@ private:
 	void initCommands();
 	void initSyncStructures();
 
-	//Vulkan setup (from Vulkan Tutorial)
+	void createSwapChain(uint32_t width, uint32_t height);
+	void destroySwapChain();
+
+	//VULKAN SETUP (ADAPTED FROM VULKAN-TUTORIAL)
+	//===================================================================================================================
 	void createInstance();
 	void setupDebugMessenger();
 	void createSurface();
 	void pickPhysicalDevice();
 	void createLogicalDevice();
 
-	//Vulkan setup helpers
+	//VULKAN SETUP HELPERS
+	//===================================================================================================================
 	bool checkValidationLayerSupport();
 	std::vector<const char *> getInstanceExtensions();
 	VkResult createDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT *pCreateInfo, const VkAllocationCallbacks *pAllocator, VkDebugUtilsMessengerEXT *pDebugMessenger);
+	void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks *pAllocator);
 	bool isDeviceSuitable(VkPhysicalDevice device);
 	bool checkDeviceExtensionSupport(VkPhysicalDevice device);
 	QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);
+
 	SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device);
+	VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR> &availableFormats);
+	VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR> &availablePresentModes);
 };
