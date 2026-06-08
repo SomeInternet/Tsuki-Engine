@@ -128,10 +128,12 @@ void TsukiEngine::initCommands() {
 
     for (int i = 0; i < FRAMES_IN_FLIGHT; ++i) {
         VK_CHECK(vkCreateCommandPool(_device, &commandPoolInfo, nullptr, &_frames[i]._commandPool)); //TODO: I really gotta use this macro more...
+        //vkCreateCommandPool(_device, &commandPoolInfo, nullptr, &_frames[i]._commandPool);
 
         VkCommandBufferAllocateInfo commandBufferAllocInfo = tsukiinit::tCommandBufferAllocateInfo(_frames[i]._commandPool, 1);
     
         VK_CHECK(vkAllocateCommandBuffers(_device, &commandBufferAllocInfo, &_frames[i]._mainCommandBuffer));
+        //vkAllocateCommandBuffers(_device, &commandBufferAllocInfo, &_frames[i]._mainCommandBuffer);
     }
 }
 
@@ -189,9 +191,8 @@ void TsukiEngine::createSwapChain(uint32_t width, uint32_t height) {
 
     _swapChainImageFormat = surfaceFormat.format;
     _swapChainExtent = extent;
-    if (vkCreateSwapchainKHR(_device, &createInfo, nullptr, &_swapChain) != VK_SUCCESS) {
-        throw std::runtime_error("failed to create swap chain!");
-    }
+
+    VK_CHECK(vkCreateSwapchainKHR(_device, &createInfo, nullptr, &_swapChain));
 
     vkGetSwapchainImagesKHR(_device, _swapChain, &imageCount, nullptr);
     _swapChainImages.resize(imageCount);
@@ -243,9 +244,7 @@ void TsukiEngine::createInstance() {
         createInfo.pNext = nullptr;
     }
 
-    if (vkCreateInstance(&createInfo, nullptr, &_instance) != VK_SUCCESS) {
-        throw std::runtime_error("FAILED TO CREATE INSTANCE!");
-    }
+    VK_CHECK(vkCreateInstance(&createInfo, nullptr, &_instance));
 }
 
 void TsukiEngine::setupDebugMessenger() {
@@ -253,15 +252,11 @@ void TsukiEngine::setupDebugMessenger() {
 
     VkDebugUtilsMessengerCreateInfoEXT createInfo = tsukiinit::tDebugUtilsMessengerCreateInfo(debugCallback);
 
-    if (createDebugUtilsMessengerEXT(_instance, &createInfo, nullptr, &_debugMessenger) != VK_SUCCESS) {
-        throw std::runtime_error("failed to set up debug messenger!");
-    }
+    VK_CHECK(createDebugUtilsMessengerEXT(_instance, &createInfo, nullptr, &_debugMessenger));
 }
 
 void TsukiEngine::createSurface() {
-    if (glfwCreateWindowSurface(_instance, window, nullptr, &_surface) != VK_SUCCESS) {
-        throw std::runtime_error("failed to create window surface!");
-    }
+    VK_CHECK(glfwCreateWindowSurface(_instance, window, nullptr, &_surface));
 }
 
 void TsukiEngine::pickPhysicalDevice() {
@@ -341,9 +336,7 @@ void TsukiEngine::createLogicalDevice() {
         createInfo.enabledLayerCount = 0;
     }
 
-    if (vkCreateDevice(_physicalDevice, &createInfo, nullptr, &_device) != VK_SUCCESS) {
-        throw std::runtime_error("failed to create logical device!");
-    }
+    VK_CHECK(vkCreateDevice(_physicalDevice, &createInfo, nullptr, &_device));
 
     //TODO: Create queues
     vkGetDeviceQueue(_device, indices.graphicsFamily.value(), 0, &_graphicsQueue);

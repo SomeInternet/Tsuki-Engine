@@ -17,6 +17,7 @@
 #include <vk_mem_alloc.h>
 
 #include <fmt/core.h>
+#include <fmt/format.h>
 
 #include <glm/mat4x4.hpp>
 #include <glm/vec4.hpp>
@@ -24,14 +25,15 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
-//The do-while helps w/ expansion, and scopes the err.
-#define VK_CHECK(x)													\
-	do {															\
-		VkResult err = x;											\
-		if (err) {													\
-			fmt::println("Vulkan error: {}", string_VkResult(err));	\
-			abort();												\
-		}															\
+//The do-while helps w/ expansion, and scopes the err
+//TODO: Either fix the fmt stuff, or just use std::cout or std::cerr
+#define VK_CHECK(x)																\
+	do {																		\
+		VkResult err = x;														\
+		if (err) {																\
+			std::cerr << "Vulkan error: " << string_VkResult(err) << std::endl;	\
+			abort();															\
+		}																		\
 	} while (0)
 
 struct QueueFamilyIndices {

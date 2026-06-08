@@ -1,7 +1,4 @@
-﻿  main.cpp
-  t_engine.cpp
-  t_initializers.cpp
-  Generating Code...
+﻿LINK : warning LNK4098: defaultlib 'MSVCRT' conflicts with use of other libs; use /NODEFAULTLIB:library
   Tsuki Engine.vcxproj -> C:\Users\thoma\source\repos\Tsuki Engine\x64\Debug\Tsuki Engine.exe
   'pwsh.exe' is not recognized as an internal or external command,
   operable program or batch file.
