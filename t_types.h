@@ -10,6 +10,7 @@
 #include <functional>
 #include <deque>
 
+#define VK_USE_PLATFORM_WIN32_KHR //Allows us to enable KHR external memory win32
 #include <vulkan/vulkan.h>
 #include <vulkan/vk_enum_string_helper.h>
 
@@ -56,3 +57,5 @@ struct SwapChainSupportDetails {
 
 //Descriptor Set Layouts "promise" the Vulkan pipeline what kinds of resources
 //will be available at what stage of the pipeline. It groupts descriptor set layout bindings
+
+//Extensions fall into 2 categories: instance and device. Instance extensions enable Vulkan capabilities independent of the physical device

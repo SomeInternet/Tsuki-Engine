@@ -35,5 +35,20 @@
     <ClInclude Include="t_initializers.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="t_images.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="t_loader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="t_pipelines.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="t_descriptors.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="README.md" />
   </ItemGroup>
 </Project>
