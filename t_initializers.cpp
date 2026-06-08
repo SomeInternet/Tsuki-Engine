@@ -1,7 +1,7 @@
 #include "t_initializers.h"
 
 VkDebugUtilsMessengerCreateInfoEXT tsukiinit::tDebugUtilsMessengerCreateInfo(PFN_vkDebugUtilsMessengerCallbackEXT debugCallback) {
-    VkDebugUtilsMessengerCreateInfoEXT createInfo {};
+    VkDebugUtilsMessengerCreateInfoEXT createInfo{};
 
     createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
     //Specify which severities of messages we want to handle
@@ -27,7 +27,7 @@ VkCommandPoolCreateInfo tsukiinit::tCommandPoolCreateInfo(uint32_t queueFamilyIn
 
 VkCommandBufferAllocateInfo tsukiinit::tCommandBufferAllocateInfo(
     VkCommandPool pool, uint32_t count /*= 1*/) {
-    VkCommandBufferAllocateInfo info {};
+    VkCommandBufferAllocateInfo info{};
 
     info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     info.pNext = nullptr;
@@ -39,7 +39,7 @@ VkCommandBufferAllocateInfo tsukiinit::tCommandBufferAllocateInfo(
 }
 
 VkCommandBufferBeginInfo tsukiinit::tCommandBufferBeginInfo(VkCommandBufferUsageFlags flags /*= 0*/ ) {
-    VkCommandBufferBeginInfo info {};
+    VkCommandBufferBeginInfo info{};
 
     info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     info.pNext = nullptr;
@@ -50,7 +50,7 @@ VkCommandBufferBeginInfo tsukiinit::tCommandBufferBeginInfo(VkCommandBufferUsage
 }
 
 VkCommandBufferSubmitInfo tsukiinit::tCommandBufferSubmitInfo(VkCommandBuffer cmd) {
-    VkCommandBufferSubmitInfo info {};
+    VkCommandBufferSubmitInfo info{};
     info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
     info.pNext = nullptr;
     info.commandBuffer = cmd;
@@ -60,7 +60,7 @@ VkCommandBufferSubmitInfo tsukiinit::tCommandBufferSubmitInfo(VkCommandBuffer cm
 }
 
 VkFenceCreateInfo tsukiinit::tFenceCreateInfo(VkFenceCreateFlags flags /*= 0*/ ) {
-    VkFenceCreateInfo info {};
+    VkFenceCreateInfo info{};
 
     info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     info.pNext = nullptr;
@@ -70,7 +70,7 @@ VkFenceCreateInfo tsukiinit::tFenceCreateInfo(VkFenceCreateFlags flags /*= 0*/ )
 }
 
 VkSemaphoreCreateInfo tsukiinit::tSemaphoreCreateInfo(VkSemaphoreCreateFlags flags /*= 0*/ ) {
-    VkSemaphoreCreateInfo info {};
+    VkSemaphoreCreateInfo info{};
 
     info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     info.pNext = nullptr;
@@ -81,7 +81,7 @@ VkSemaphoreCreateInfo tsukiinit::tSemaphoreCreateInfo(VkSemaphoreCreateFlags fla
 
 VkSubmitInfo2 tsukiinit::tSubmitInfo(VkCommandBufferSubmitInfo *cmd, VkSemaphoreSubmitInfo *signalSemaphoreInfo,
     VkSemaphoreSubmitInfo *waitSemaphoreInfo) {
-    VkSubmitInfo2 info {};
+    VkSubmitInfo2 info{};
 
     info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
     info.pNext = nullptr;
@@ -101,7 +101,7 @@ VkSubmitInfo2 tsukiinit::tSubmitInfo(VkCommandBufferSubmitInfo *cmd, VkSemaphore
 }
 
 VkPresentInfoKHR tsukiinit::tPresentInfo() {
-    VkPresentInfoKHR info {};
+    VkPresentInfoKHR info{};
     info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 
     return info;
@@ -109,7 +109,7 @@ VkPresentInfoKHR tsukiinit::tPresentInfo() {
 
 //Render target for colors
 VkRenderingAttachmentInfo tsukiinit::tAttachmentInfo(VkImageView view, VkClearValue *clear, VkImageLayout layout /*= VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL*/ ) {
-    VkRenderingAttachmentInfo colorAttachment {};
+    VkRenderingAttachmentInfo colorAttachment{};
     
     colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
     colorAttachment.pNext = nullptr;
@@ -127,7 +127,7 @@ VkRenderingAttachmentInfo tsukiinit::tAttachmentInfo(VkImageView view, VkClearVa
 //Render target for depth testing
 VkRenderingAttachmentInfo tsukiinit::tDepthAttachmentInfo(VkImageView view,
     VkImageLayout layout /*= VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL*/) {
-    VkRenderingAttachmentInfo depthAttachment {};
+    VkRenderingAttachmentInfo depthAttachment{};
 
     depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
     depthAttachment.pNext = nullptr;
@@ -162,7 +162,7 @@ VkRenderingInfo tsukiinit::tRenderingInfo(VkExtent2D renderExtent, VkRenderingAt
 //TODO: Review (-)
 //Image subresource ranges tell Vulkan to target a part of an "image"
 VkImageSubresourceRange tsukiinit::tImageSubresourceRange(VkImageAspectFlags aspectMask) {
-    VkImageSubresourceRange subImage {};
+    VkImageSubresourceRange subImage{};
 
     subImage.aspectMask = aspectMask;
     subImage.baseMipLevel = 0;
@@ -174,7 +174,7 @@ VkImageSubresourceRange tsukiinit::tImageSubresourceRange(VkImageAspectFlags asp
 }
 
 VkSemaphoreSubmitInfo tsukiinit::tSemaphoreSubmitInfo(VkPipelineStageFlags2 stageMask, VkSemaphore semaphore) {
-    VkSemaphoreSubmitInfo info {};
+    VkSemaphoreSubmitInfo info{};
     info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
     info.pNext = nullptr;
     info.semaphore = semaphore;
@@ -185,7 +185,7 @@ VkSemaphoreSubmitInfo tsukiinit::tSemaphoreSubmitInfo(VkPipelineStageFlags2 stag
 
 VkDescriptorSetLayoutBinding tsukiinit::tDescriptorSetLayoutBinding(VkDescriptorType type, VkShaderStageFlags stageFlags,
     uint32_t binding) {
-    VkDescriptorSetLayoutBinding setbind {};
+    VkDescriptorSetLayoutBinding setbind{};
 
     setbind.binding = binding;
     setbind.descriptorCount = 1;
@@ -198,7 +198,7 @@ VkDescriptorSetLayoutBinding tsukiinit::tDescriptorSetLayoutBinding(VkDescriptor
 
 VkDescriptorSetLayoutCreateInfo tsukiinit::tDescriptorSetLayoutCreateInfo(VkDescriptorSetLayoutBinding *bindings,
     uint32_t bindingCount) {
-    VkDescriptorSetLayoutCreateInfo info {};
+    VkDescriptorSetLayoutCreateInfo info{};
 
     info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     info.pNext = nullptr;
@@ -213,7 +213,7 @@ VkDescriptorSetLayoutCreateInfo tsukiinit::tDescriptorSetLayoutCreateInfo(VkDesc
 //Helper functions to update types of descriptor sets.
 VkWriteDescriptorSet tsukiinit::tWriteDescriptorImage(VkDescriptorType type, VkDescriptorSet dstSet,
     VkDescriptorImageInfo *imageInfo, uint32_t binding) {
-    VkWriteDescriptorSet write = {};
+    VkWriteDescriptorSet write{};
     write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     write.pNext = nullptr;
 
@@ -228,7 +228,7 @@ VkWriteDescriptorSet tsukiinit::tWriteDescriptorImage(VkDescriptorType type, VkD
 
 VkWriteDescriptorSet tsukiinit::tWriteDescriptorBuffer(VkDescriptorType type, VkDescriptorSet dstSet,
     VkDescriptorBufferInfo *bufferInfo, uint32_t binding) {
-    VkWriteDescriptorSet write {};
+    VkWriteDescriptorSet write{};
 
     write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     write.pNext = nullptr;
@@ -240,7 +240,7 @@ VkWriteDescriptorSet tsukiinit::tWriteDescriptorBuffer(VkDescriptorType type, Vk
     return write;
 }
 VkDescriptorBufferInfo tsukiinit::tBufferInfo(VkBuffer buffer, VkDeviceSize offset, VkDeviceSize range) {
-    VkDescriptorBufferInfo info {};
+    VkDescriptorBufferInfo info{};
 
     info.buffer = buffer;
     info.offset = offset;
@@ -249,7 +249,7 @@ VkDescriptorBufferInfo tsukiinit::tBufferInfo(VkBuffer buffer, VkDeviceSize offs
 }
 
 VkImageCreateInfo tsukiinit::tImageCreateInfo(VkFormat format, VkImageUsageFlags usageFlags, VkExtent3D extent) {
-    VkImageCreateInfo info {};
+    VkImageCreateInfo info{};
 
     info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     info.pNext = nullptr;
@@ -266,7 +266,7 @@ VkImageCreateInfo tsukiinit::tImageCreateInfo(VkFormat format, VkImageUsageFlags
 
 //Create an image view, through which we can access the image
 VkImageViewCreateInfo tsukiinit::tImageViewCreateInfo(VkFormat format, VkImage image, VkImageAspectFlags aspectFlags) {
-    VkImageViewCreateInfo info {};
+    VkImageViewCreateInfo info{};
 
     info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     info.pNext = nullptr;
@@ -282,7 +282,7 @@ VkImageViewCreateInfo tsukiinit::tImageViewCreateInfo(VkFormat format, VkImage i
 }
 
 VkPipelineLayoutCreateInfo tsukiinit::tPipelineLayoutCreateInfo() {
-    VkPipelineLayoutCreateInfo info {};
+    VkPipelineLayoutCreateInfo info{};
 
     info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     info.pNext = nullptr;
@@ -297,7 +297,7 @@ VkPipelineLayoutCreateInfo tsukiinit::tPipelineLayoutCreateInfo() {
 VkPipelineShaderStageCreateInfo tsukiinit::tPipelineShaderStageCreateInfo(VkShaderStageFlagBits stage,
     VkShaderModule shaderModule,
     const char *entry) {
-    VkPipelineShaderStageCreateInfo info {};
+    VkPipelineShaderStageCreateInfo info{};
 
     info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     info.pNext = nullptr;

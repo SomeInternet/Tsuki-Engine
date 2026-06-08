@@ -71,6 +71,11 @@ void TsukiEngine::init() {
 
 void TsukiEngine::cleanup() {
 	if (_isInit) {
+        vkDeviceWaitIdle(_device);
+
+        for (int i = 0; i < FRAMES_IN_FLIGHT; ++i) {
+            vkDestroyCommandPool(_device, _frames[i]._commandPool, nullptr);
+        }
 
         destroySwapChain();
         
@@ -84,8 +89,6 @@ void TsukiEngine::cleanup() {
 		glfwDestroyWindow(window);
 		glfwTerminate();
 	}
-
-    //TODO: Destroy Vulkan objects
 
 	loadedEngine = nullptr;
 }
@@ -116,7 +119,20 @@ void TsukiEngine::initSwapChain() { //NOTE: Watch out for window resizes later..
 }
 
 void TsukiEngine::initCommands() {
+    VkCommandPoolCreateInfo commandPoolInfo{};
 
+    commandPoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    commandPoolInfo.pNext = nullptr;
+    commandPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    commandPoolInfo.queueFamilyIndex = _graphicsQueueFamily;
+
+    for (int i = 0; i < FRAMES_IN_FLIGHT; ++i) {
+        VK_CHECK(vkCreateCommandPool(_device, &commandPoolInfo, nullptr, &_frames[i]._commandPool)); //TODO: I really gotta use this macro more...
+
+        VkCommandBufferAllocateInfo commandBufferAllocInfo = tsukiinit::tCommandBufferAllocateInfo(_frames[i]._commandPool, 1);
+    
+        VK_CHECK(vkAllocateCommandBuffers(_device, &commandBufferAllocInfo, &_frames[i]._mainCommandBuffer));
+    }
 }
 
 void TsukiEngine::initSyncStructures() {
@@ -330,7 +346,8 @@ void TsukiEngine::createLogicalDevice() {
     }
 
     //TODO: Create queues
-    //vkGetDeviceQueue(_device, indices.graphicsFamily.value(), 0, &graphicsQueue);
+    vkGetDeviceQueue(_device, indices.graphicsFamily.value(), 0, &_graphicsQueue);
+    _graphicsQueueFamily = indices.graphicsFamily.value();
     //vkGetDeviceQueue(_device, indices.presentFamily.value(), 0, &presentQueue);
 }
 

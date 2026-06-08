@@ -50,6 +50,14 @@ struct SwapChainSupportDetails {
 	std::vector<VkPresentModeKHR> presentModes;
 };
 
+struct FrameData {
+
+	VkCommandPool _commandPool;
+	VkCommandBuffer _mainCommandBuffer;
+};
+
+constexpr unsigned int FRAMES_IN_FLIGHT = 2;
+
 //REVIEW:
 //Command pools are thread-isolated pieces of memory corresponding to a queue family.
 //We allocated command buffers from them, which can be submitted to a queue in the queue family

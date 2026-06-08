@@ -8,18 +8,13 @@ class TsukiEngine {
 public:
 
 	bool _isInit{ false };
-	int _frame{ 0 };
+	int _frameNum{ 0 };
 	bool stopRendering{ false };
 	VkExtent2D _windowExtent{ WIDTH, HEIGHT }; //TODO: Change to match...
 
 	GLFWwindow *window{ nullptr };
 
-	static TsukiEngine& Get();
-
-	void init();
-	void cleanup();
-	void draw(); //Draw loop
-	void run(); //Run main loop
+	FrameData _frames[FRAMES_IN_FLIGHT];
 
 	//Vulkan handles
 	VkInstance _instance; //Vulkan library handle
@@ -34,6 +29,18 @@ public:
 	std::vector<VkImage> _swapChainImages;
 	std::vector<VkImageView> _swapChainImageViews;
 	VkExtent2D _swapChainExtent;
+
+	VkQueue _graphicsQueue;
+	uint32_t _graphicsQueueFamily;
+
+	static TsukiEngine &Get();
+
+	void init();
+	void cleanup();
+	void draw(); //Draw loop
+	void run(); //Run main loop
+
+	FrameData &getCurrFrame() { return _frames[_frameNum % FRAMES_IN_FLIGHT]; }
 
 private:
 
