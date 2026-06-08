@@ -1,14 +1,19 @@
 
 Tsuki Engine
 =====================
-A light Vulkan-CUDA interop pathtracer engine
+T Fong `someinternetboi`  
+[My Website](tzfong.com), [My LinkedIn](https://www.linkedin.com/in/tzfong/)
+
+A light Vulkan-CUDA interop pathtracer engine.
 
 TODO
 --------------------
 1) **Complete Vkguide setup (O)**
 a) *Consider switching to SDL*
-2) **Enable `VK_KHR_external_memory_capabilities` extension, `VK_KHR_external` memory on device, and `VK_KHR_external_memory_win32` (-)**
-3) Implement quad rendering w/ image textures in Vulkan
+2) **Enable `VK_KHR_external_memory_capabilities` extension, `VK_KHR_external` memory on device, and `VK_KHR_external_memory_win32` (O)**
+3) **Implement quad rendering w/ image textures in Vulkan (-)**
+a) *Setup Vulkan instance, physical device, surface, and logical device (O)*
+b) *Setup Vulkan swapchain (-)*
 4) Implement GLTF loading to CUDA
 5) Implement multiple object rasterization in Vulkan
 6) Implement CUDA pathtracing
@@ -36,13 +41,13 @@ Code Structure
 Attributions
 --------------------
 Resources used:
-* UPenn CIS 5650 (GPU Programming and Architecture) curriculum
-* VkGuide
-* Vulkan Tutorial
+* **UPenn CIS 5650 (GPU Programming and Architecture) curriculum**
+* **VkGuide** - The engine structure is adapted from VkGuide's excellent tutorial.
+* **Vulkan Tutorial** - Used for initial VS project setup, and used for Vulkan object creation in place of `vkbootstrap`.
 
 External libraries used:
-* DearIMGui
-* GLM
-* tinyGLTF
-* FMT
-* GLFW
+* `DearIMGui`
+* `GLM`
+* `tinyGLTF`
+* `FMT`
+* `GLFW`
