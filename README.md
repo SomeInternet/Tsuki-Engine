@@ -8,11 +8,13 @@ TODO
 1) **Complete Vkguide setup (O)**
 a) *Consider switching to SDL*
 2) **Enable `VK_KHR_external_memory_capabilities` extension, `VK_KHR_external` memory on device, and `VK_KHR_external_memory_win32` (-)**
-3) Implement quad rendering in Vulkan
+3) Implement quad rendering w/ image textures in Vulkan
 4) Implement GLTF loading to CUDA
 5) Implement multiple object rasterization in Vulkan
 6) Implement CUDA pathtracing
-7) Setup CMake and port to GPU
+7) Implement Vulkan interop
+8) Setup CMake and port to GPU
+a) *reformat project structure*
 
 *6 can come before or after 4 and 5*
 
@@ -35,7 +37,7 @@ Attributions
 --------------------
 Resources used:
 * UPenn CIS 5650 (GPU Programming and Architecture) curriculum
-* VKGuide
+* VkGuide
 * Vulkan Tutorial
 
 External libraries used:
@@ -43,3 +45,4 @@ External libraries used:
 * GLM
 * tinyGLTF
 * FMT
+* GLFW
