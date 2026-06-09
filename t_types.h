@@ -54,13 +54,38 @@ struct SwapChainSupportDetails {
 	std::vector<VkPresentModeKHR> presentModes;
 };
 
-struct FrameData {
+struct DeletionQueue { //TODO: Optimize? (https://vkguide.dev/docs/new_chapter_2/vulkan_new_rendering/)
+	std::deque<std::function<void()>> deletors;
 
+	void push(std::function<void()> &&function) {
+		deletors.push_back(function);
+	}
+
+	void flush() {
+		for (auto it = deletors.rbegin(); it != deletors.rend(); ++it) {
+			(*it)();
+		}
+
+		deletors.clear();
+	}
+};
+
+struct FrameData {
 	VkCommandPool _commandPool;
 	VkCommandBuffer _mainCommandBuffer;
 
 	VkSemaphore _swapChainSemaphore; //Have the rendering commands wait on receiving the image from the swapchain
 	VkFence _renderFence; //Have command buffer recording wait on rendering being finished
+
+	DeletionQueue _deletionQueue;
+};
+
+struct AllocatedImage {
+	VkImage image;
+	VkImageView imageView;
+	VmaAllocation allocation;
+	VkExtent3D imageExtent;
+	VkFormat imageFormat;
 };
 
 //REVIEW:

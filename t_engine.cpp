@@ -1,12 +1,14 @@
-#include "t_engine.h"
-#include "t_initializers.h"
-#include "t_types.h"
-#include "t_images.h"
+#define VMA_IMPLEMENTATION
 
 #include <chrono>
 #include <thread>
 #include <iostream>
 #include <set>
+
+#include "t_engine.h"
+#include "t_initializers.h"
+#include "t_types.h"
+#include "t_images.h"
 
 #if _DEBUG
 constexpr bool enableValidationLayers = true;
@@ -80,7 +82,11 @@ void TsukiEngine::cleanup() {
 
             vkDestroyFence(_device, _frames[i]._renderFence, nullptr);
             vkDestroySemaphore(_device, _frames[i]._swapChainSemaphore, nullptr);
+
+            _frames[i]._deletionQueue.flush();
         }
+
+        _mainDeletionQueue.flush();
 
         for (int i = 0; i < _swapChainImages.size(); ++i) {
             vkDestroySemaphore(_device, _renderSemaphores[i], nullptr);
@@ -105,6 +111,9 @@ void TsukiEngine::cleanup() {
 void TsukiEngine::draw() {
 	//TODO (-)
     VK_CHECK(vkWaitForFences(_device, 1, &getCurrFrame()._renderFence, true, 1000000000)); //Wait for 1 fence (the fence of the current frame) for up to 1 second
+
+    //Clear frame-specific data
+    getCurrFrame()._deletionQueue.flush();
 
     //Get image from swapchain
     uint32_t swapChainImageIndex;
@@ -174,6 +183,15 @@ void TsukiEngine::initVulkan() {
     createSurface();
     pickPhysicalDevice();
     createLogicalDevice();
+
+    //Initialize the VMA
+    VmaAllocatorCreateInfo allocatorInfo{};
+    allocatorInfo.physicalDevice = _physicalDevice;
+    allocatorInfo.device = _device;
+    allocatorInfo.instance = _instance;
+    allocatorInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT; //Allows us to use device pointers
+    vmaCreateAllocator(&allocatorInfo, &_allocator);
+    _mainDeletionQueue.push([&]() { vmaDestroyAllocator(_allocator); }); //Push a lambda that when called will destroy the allocator
 }
 
 void TsukiEngine::initSwapChain() { //NOTE: Watch out for window resizes later...
@@ -271,6 +289,20 @@ void TsukiEngine::createSwapChain(uint32_t width, uint32_t height) {
     vkGetSwapchainImagesKHR(_device, _swapChain, &imageCount, nullptr);
     _swapChainImages.resize(imageCount);
     vkGetSwapchainImagesKHR(_device, _swapChain, &imageCount, _swapChainImages.data());
+
+    //Create image views of the swap chain images
+    for (int i = 0; i < _swapChainImages.size(); ++i) {
+        VkImageViewCreateInfo info{};
+        info.pNext = nullptr;
+        info.image = _swapChainImages[i];
+        info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        info.format = surfaceFormat.format;
+        info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        info.subresourceRange.baseMipLevel = 0;
+        info.subresourceRange.levelCount = 1;
+        info.subresourceRange.baseArrayLayer = 0;
+        info.subresourceRange.layerCount = 1;
+    }
 }
 
 void TsukiEngine::destroySwapChain() {

@@ -38,6 +38,10 @@ public:
 	VkQueue _graphicsQueue;
 	uint32_t _graphicsQueueFamily;
 
+	//Additional helper members
+	DeletionQueue _mainDeletionQueue;
+	VmaAllocator _allocator;
+
 	static TsukiEngine &Get();
 
 	void init();
