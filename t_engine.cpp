@@ -1,7 +1,7 @@
 #include "t_engine.h"
-
-#include "t_initializers.h" //TODO
+#include "t_initializers.h"
 #include "t_types.h"
+#include "t_images.h"
 
 #include <chrono>
 #include <thread>
@@ -73,8 +73,17 @@ void TsukiEngine::cleanup() {
 	if (_isInit) {
         vkDeviceWaitIdle(_device);
 
+        //TODO: Destroy synchronization structures
+
         for (int i = 0; i < FRAMES_IN_FLIGHT; ++i) {
             vkDestroyCommandPool(_device, _frames[i]._commandPool, nullptr);
+
+            vkDestroyFence(_device, _frames[i]._renderFence, nullptr);
+            vkDestroySemaphore(_device, _frames[i]._swapChainSemaphore, nullptr);
+        }
+
+        for (int i = 0; i < _swapChainImages.size(); ++i) {
+            vkDestroySemaphore(_device, _renderSemaphores[i], nullptr);
         }
 
         destroySwapChain();
@@ -94,11 +103,64 @@ void TsukiEngine::cleanup() {
 }
 
 void TsukiEngine::draw() {
-	//TODO
+	//TODO (-)
+    VK_CHECK(vkWaitForFences(_device, 1, &getCurrFrame()._renderFence, true, 1000000000)); //Wait for 1 fence (the fence of the current frame) for up to 1 second
+
+    //Get image from swapchain
+    uint32_t swapChainImageIndex;
+    VK_CHECK(vkAcquireNextImageKHR(_device, _swapChain, 1000000000, getCurrFrame()._swapChainSemaphore, nullptr, &swapChainImageIndex)); //Signals the swapchain semaphore when complete
+
+    VK_CHECK(vkResetFences(_device, 1, &getCurrFrame()._renderFence)); //Reset the fence
+
+    //Begin command buffer
+    VkCommandBuffer commandBuffer = getCurrFrame()._mainCommandBuffer;
+    VK_CHECK(vkResetCommandBuffer(commandBuffer, 0));
+    VkCommandBufferBeginInfo commandBufferBeginInfo = tsukiinit::tCommandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT); //1-time command buffer (we re-record each frame)
+    VK_CHECK(vkBeginCommandBuffer(commandBuffer, &commandBufferBeginInfo));
+
+    //TODO: Record commands
+    //Transition image to writeable format
+    tsukiutil::transitionImageLayout(commandBuffer, _swapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+
+    //Clear the image color
+    VkClearColorValue clearValue;
+    float flash = std::abs(std::sin(_frameNum / 120.f));
+    clearValue = { { 0.0f, 0.0f, flash, 1.0f } };
+    VkImageSubresourceRange clearRange = tsukiinit::tImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
+    vkCmdClearColorImage(commandBuffer, _swapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
+
+    //Transition image to presentable format
+    tsukiutil::transitionImageLayout(commandBuffer, _swapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+
+    //TODO: End command buffer
+    VK_CHECK(vkEndCommandBuffer(commandBuffer));
+
+    //TODO: Submit the command buffer to the queue
+    VkCommandBufferSubmitInfo commandBufferSubmitInfo = tsukiinit::tCommandBufferSubmitInfo(commandBuffer);
+    VkSemaphoreSubmitInfo waitSemaphoreSubmitInfo = tsukiinit::tSemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
+        getCurrFrame()._swapChainSemaphore); //Wait on the swap chain semaphore to begin writing to the image (when we receive the image, it's safe to write to)
+    VkSemaphoreSubmitInfo signalSemaphoreSubmitInfo = tsukiinit::tSemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, 
+        _renderSemaphores[swapChainImageIndex]); //Signal that rendering is complete afterwards (we can now present)
+    VkSubmitInfo2 submit = tsukiinit::tSubmitInfo(&commandBufferSubmitInfo, &signalSemaphoreSubmitInfo, &waitSemaphoreSubmitInfo);
+    VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submit, getCurrFrame()._renderFence));
+
+    //TODO: Present
+    VkPresentInfoKHR presentInfo{};
+    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    presentInfo.pNext = nullptr;
+    presentInfo.swapchainCount = 1;
+    presentInfo.pSwapchains = &_swapChain;
+    presentInfo.pWaitSemaphores = &_renderSemaphores[swapChainImageIndex];
+    presentInfo.waitSemaphoreCount = 1;
+
+    presentInfo.pImageIndices = &swapChainImageIndex;
+
+    VK_CHECK(vkQueuePresentKHR(_graphicsQueue, &presentInfo));
+    ++_frameNum;
 }
 
 void TsukiEngine::run() {
-    return;
+    //return;
 	while (!glfwWindowShouldClose(window)) {
 		glfwPollEvents();
 
@@ -127,18 +189,30 @@ void TsukiEngine::initCommands() {
     commandPoolInfo.queueFamilyIndex = _graphicsQueueFamily;
 
     for (int i = 0; i < FRAMES_IN_FLIGHT; ++i) {
-        VK_CHECK(vkCreateCommandPool(_device, &commandPoolInfo, nullptr, &_frames[i]._commandPool)); //TODO: I really gotta use this macro more...
-        //vkCreateCommandPool(_device, &commandPoolInfo, nullptr, &_frames[i]._commandPool);
+        VK_CHECK(vkCreateCommandPool(_device, &commandPoolInfo, nullptr, &_frames[i]._commandPool));
 
         VkCommandBufferAllocateInfo commandBufferAllocInfo = tsukiinit::tCommandBufferAllocateInfo(_frames[i]._commandPool, 1);
     
         VK_CHECK(vkAllocateCommandBuffers(_device, &commandBufferAllocInfo, &_frames[i]._mainCommandBuffer));
-        //vkAllocateCommandBuffers(_device, &commandBufferAllocInfo, &_frames[i]._mainCommandBuffer);
     }
 }
 
 void TsukiEngine::initSyncStructures() {
+    //TODO: Create synchronization structures
+    VkFenceCreateInfo fenceCreateInfo = tsukiinit::tFenceCreateInfo(VK_FENCE_CREATE_SIGNALED_BIT); //Create as pre-signalled, so we don't block immediately
+    VkSemaphoreCreateInfo semaphoreCreateInfo = tsukiinit::tSemaphoreCreateInfo();
 
+    for (int i = 0; i < _swapChainImages.size(); ++i) {
+        VkSemaphore semaphore;
+        VK_CHECK(vkCreateSemaphore(_device, &semaphoreCreateInfo, nullptr, &semaphore));
+        _renderSemaphores.push_back(semaphore);
+    }
+
+    for (int i = 0; i < FRAMES_IN_FLIGHT; ++i) {
+        VK_CHECK(vkCreateSemaphore(_device, &semaphoreCreateInfo, nullptr, &_frames[i]._swapChainSemaphore));
+
+        VK_CHECK(vkCreateFence(_device, &fenceCreateInfo, nullptr, &_frames[i]._renderFence));
+    }
 }
 
 //HELPERS
@@ -168,7 +242,7 @@ void TsukiEngine::createSwapChain(uint32_t width, uint32_t height) {
     createInfo.imageColorSpace = surfaceFormat.colorSpace;
     createInfo.imageExtent = extent;
     createInfo.imageArrayLayers = 1;
-    createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; //We want to render directly to the images in the swap chain
+    createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT; //We want to render directly to the images in the swap chain
 
     QueueFamilyIndices indices = findQueueFamilies(_physicalDevice);
     uint32_t queueFamilyIndices[] = { indices.graphicsFamily.value(), indices.presentFamily.value() };

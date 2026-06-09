@@ -24,6 +24,9 @@
     <ClCompile Include="t_initializers.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="t_images.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="t_engine.h">

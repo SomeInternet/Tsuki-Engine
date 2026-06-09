@@ -144,6 +144,7 @@
   <ItemGroup>
     <ClCompile Include="main.cpp" />
     <ClCompile Include="t_engine.cpp" />
+    <ClCompile Include="t_images.cpp" />
     <ClCompile Include="t_initializers.cpp" />
   </ItemGroup>
   <ItemGroup>

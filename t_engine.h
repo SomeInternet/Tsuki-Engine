@@ -4,6 +4,8 @@
 #define WIDTH 1700
 #define HEIGHT 900
 
+constexpr unsigned int FRAMES_IN_FLIGHT = 2;
+
 class TsukiEngine {
 public:
 
@@ -15,6 +17,9 @@ public:
 	GLFWwindow *window{ nullptr };
 
 	FrameData _frames[FRAMES_IN_FLIGHT];
+	//To avoid validation layer warnings
+	std::vector<VkSemaphore> _renderSemaphores; //Have presentation wait on the rendering being finished
+	//TODO: Understand this fix a little better
 
 	//Vulkan handles
 	VkInstance _instance; //Vulkan library handle

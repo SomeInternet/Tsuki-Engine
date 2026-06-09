@@ -10,7 +10,9 @@
 #include <functional>
 #include <deque>
 
+#define NOMINMAX //Stop windows.h definitions of min and max
 #define VK_USE_PLATFORM_WIN32_KHR //Allows us to enable KHR external memory win32
+#include <windows.h>
 #include <vulkan/vulkan.h>
 #include <vulkan/vk_enum_string_helper.h>
 
@@ -22,7 +24,7 @@
 #include <glm/mat4x4.hpp>
 #include <glm/vec4.hpp>
 
-#define GLFW_INCLUDE_VULKAN
+#define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
 //The do-while helps w/ expansion, and scopes the err
@@ -56,9 +58,10 @@ struct FrameData {
 
 	VkCommandPool _commandPool;
 	VkCommandBuffer _mainCommandBuffer;
-};
 
-constexpr unsigned int FRAMES_IN_FLIGHT = 2;
+	VkSemaphore _swapChainSemaphore; //Have the rendering commands wait on receiving the image from the swapchain
+	VkFence _renderFence; //Have command buffer recording wait on rendering being finished
+};
 
 //REVIEW:
 //Command pools are thread-isolated pieces of memory corresponding to a queue family.
