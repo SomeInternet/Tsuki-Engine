@@ -26,7 +26,8 @@ const std::vector<const char *> deviceExtensions = {
         VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME, 
         VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME, 
         VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME, 
-        VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME
+        VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,
+        VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
 };
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
@@ -196,6 +197,29 @@ void TsukiEngine::initVulkan() {
 
 void TsukiEngine::initSwapChain() { //NOTE: Watch out for window resizes later...
     createSwapChain(WIDTH, HEIGHT);
+
+    //
+    VkExtent3D drawImageExtent = { _windowExtent.width, _windowExtent.height, 1 };
+    _drawImage.imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+    _drawImage.imageExtent = drawImageExtent;
+
+    VkImageUsageFlags drawImageUsages = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    VkImageCreateInfo rImageInfo = tsukiinit::tImageCreateInfo(_drawImage.imageFormat, drawImageUsages, drawImageExtent);
+
+    VmaAllocationCreateInfo rImageAllocationInfo{};
+    rImageAllocationInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+    rImageAllocationInfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    vmaCreateImage(_allocator, &rImageInfo, &rImageAllocationInfo, &_drawImage.image, &_drawImage.allocation, nullptr);
+
+    VkImageViewCreateInfo rImageViewInfo = tsukiinit::tImageViewCreateInfo(_drawImage.imageFormat, _drawImage.image, VK_IMAGE_ASPECT_COLOR_BIT);
+    VK_CHECK(vkCreateImageView(_device, &rImageViewInfo, nullptr, &_drawImage.imageView));
+
+    //Ensure deletion of the image and image view by adding it to the deletion queue
+    _mainDeletionQueue.push([=]() {
+        vkDestroyImageView(_device, _drawImage.imageView, nullptr);
+        vmaDestroyImage(_allocator, _drawImage.image, _drawImage.allocation);
+        });
 }
 
 void TsukiEngine::initCommands() {
@@ -410,6 +434,9 @@ void TsukiEngine::createLogicalDevice() {
     VkPhysicalDeviceVulkan11Features vk11 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
     vk11.shaderDrawParameters = VK_TRUE;
 
+    VkPhysicalDeviceVulkan12Features vk12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+    vk12.bufferDeviceAddress = VK_TRUE;
+
     VkPhysicalDeviceVulkan13Features vk13 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
     vk13.synchronization2 = VK_TRUE;
     vk13.dynamicRendering = VK_TRUE;
@@ -418,7 +445,8 @@ void TsukiEngine::createLogicalDevice() {
     eds.extendedDynamicState = VK_TRUE;
 
     features2.pNext = &vk11;
-    vk11.pNext = &vk13;
+    vk11.pNext = &vk12;
+    vk12.pNext = &vk13;
     vk13.pNext = &eds;
 
     //Device creation
@@ -538,11 +566,13 @@ bool TsukiEngine::isDeviceSuitable(VkPhysicalDevice device) { //TODO: Update
 
     //TODO: Learn more about these
     VkPhysicalDeviceVulkan11Features vk11 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
+    VkPhysicalDeviceVulkan12Features vk12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
     VkPhysicalDeviceVulkan13Features vk13 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
     VkPhysicalDeviceExtendedDynamicStateFeaturesEXT eds = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT };
 
     supportedFeatures2.pNext = &vk11;
-    vk11.pNext = &vk13;
+    vk11.pNext = &vk12;
+    vk12.pNext = &vk13;
     vk13.pNext = &eds;
 
     vkGetPhysicalDeviceFeatures2(device, &supportedFeatures2);
@@ -550,6 +580,7 @@ bool TsukiEngine::isDeviceSuitable(VkPhysicalDevice device) { //TODO: Update
     bool supportsRequiredFeatures =
         supportedFeatures2.features.samplerAnisotropy &&
         vk11.shaderDrawParameters &&
+        vk12.bufferDeviceAddress &&
         vk13.synchronization2 &&
         vk13.dynamicRendering &&
         eds.extendedDynamicState;

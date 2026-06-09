@@ -30,3 +30,7 @@ void tsukiutil::transitionImageLayout(VkCommandBuffer commandBuffer, VkImage ima
 
     vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
 }
+
+void tsukiutil::memcpyImage(VkCommandBuffer commandBuffer, VkImage src, VkImage dst, VkExtent2D srcExtent, VkExtent2D dstExtent) {
+
+}
