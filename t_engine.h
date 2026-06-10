@@ -51,6 +51,11 @@ public:
 	VkPipeline _gradientPipeline;
 	VkPipelineLayout _gradientPipelineLayout;
 
+	//IMGUI
+	VkFence _immFence;
+	VkCommandBuffer _immCommandBuffer;
+	VkCommandPool _immCommandPool;
+
 	//Additional helper members
 	DeletionQueue _mainDeletionQueue;
 	VmaAllocator _allocator;
@@ -69,6 +74,8 @@ public:
 	//===================================================================================================================
 	void drawBackground(VkCommandBuffer commandBuffer, uint32_t swapChainImageIndex);
 
+	void immediateSubmit(std::function<void(VkCommandBuffer commandBuffer)> &&function);
+
 private:
 
 	//PRIVATE HELPERS
@@ -85,6 +92,9 @@ private:
 
 	void initPipelines();
 	void initBackgroundPipelines();
+
+	void initImgui();
+	void drawImgui(VkCommandBuffer commandBuffer, VkImageView targetImageView);
 
 	//VULKAN SETUP (ADAPTED FROM VULKAN-TUTORIAL)
 	//===================================================================================================================

@@ -50,4 +50,5 @@ namespace tsukiinit {
     VkPipelineShaderStageCreateInfo tPipelineShaderStageCreateInfo(VkShaderStageFlagBits stage,
         VkShaderModule shaderModule,
         const char *entry = "main");
+    VkRenderingAttachmentInfo tRenderingAttachmentInfo(VkImageView imageView, VkClearValue *clearValue, VkImageLayout imageLayout);
 }

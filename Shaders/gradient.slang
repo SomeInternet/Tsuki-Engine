@@ -3,7 +3,7 @@ RWTexture2D<float4> image;
 
 [shader("compute")]
 [numthreads(16, 16, 1)]
-void main(uint3 globalId: SV_DispatchThreadID, uint3 localId: SV_GroupThreadID) {
+void main(uint3 globalId: SV_DispatchThreadID, uint3 localId: SV_GroupThreadID) { //SV means system value. We specified the dimensions of the workgroups, and in the dispatch command we specified the number of workgroups
 
     uint2 size;
     image.GetDimensions(size.x, size.y); //Store image dimensions in x, y

@@ -306,3 +306,19 @@ VkPipelineShaderStageCreateInfo tsukiinit::tPipelineShaderStageCreateInfo(VkShad
     info.pName = entry;
     return info;
 }
+
+VkRenderingAttachmentInfo tsukiinit::tRenderingAttachmentInfo(VkImageView imageView, VkClearValue *clearValue, VkImageLayout imageLayout) {
+    VkRenderingAttachmentInfo colorAttachment{};
+    colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    colorAttachment.pNext = nullptr;
+
+    colorAttachment.imageView = imageView;
+    colorAttachment.imageLayout = imageLayout;
+    colorAttachment.loadOp = clearValue ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD; //If we have a clear value, then clear the image, else load it, keeping the existing data
+    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    if (clearValue) {
+        colorAttachment.clearValue = *clearValue;
+    }
+
+    return colorAttachment;
+}

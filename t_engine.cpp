@@ -11,6 +11,10 @@
 #include "t_images.h"
 #include "t_pipelines.h"
 
+#include "imgui.h"
+#include "backends/imgui_impl_glfw.h"
+#include "backends/imgui_impl_vulkan.h"
+
 #if _DEBUG
 constexpr bool enableValidationLayers = true;
 #else
@@ -76,6 +80,8 @@ void TsukiEngine::init() {
 
     initPipelines();
 
+    initImgui();
+
 	_isInit = true;
 }
 
@@ -117,7 +123,20 @@ void TsukiEngine::cleanup() {
 }
 
 void TsukiEngine::draw() {
-	//TODO (-)
+	//GENERAL STRUCTURE (AS OF CHAPTER 2)
+    //Wait for current frame to finish rendering
+    //Grab a swapchain image
+    //Begin recording
+    //Transition image layouts for the compute pass
+    //Dispatch the compute pass
+    //Transition image layouts for the image copy (the abstraction we use enforces sequential execution via the image barrier)
+    //Copy the compute image to the swapchain image
+    //Begin the ImGUI rasterization pass
+    //Render ImGUI
+    //End the ImGUI rasterization pass
+    //Transition the swapchain image for presentation
+    //Present it
+
     VK_CHECK(vkWaitForFences(_device, 1, &getCurrFrame()._renderFence, true, 1000000000)); //Wait for 1 fence (the fence of the current frame) for up to 1 second
 
     //Clear frame-specific data
@@ -141,16 +160,23 @@ void TsukiEngine::draw() {
     //Transition image to writeable format
     tsukiutil::transitionImageLayout(commandBuffer, _drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
 
+    //Compute shader
     drawBackground(commandBuffer, swapChainImageIndex);
 
     //Transition the draw image and the swapchain image to execute copy
+    //Recall that within these helpers, we set a barrier that prevents further execution until the instructions before (compute pass) is finished
     tsukiutil::transitionImageLayout(commandBuffer, _swapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     tsukiutil::transitionImageLayout(commandBuffer, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
     tsukiutil::copyImage(commandBuffer, _swapChainImages[swapChainImageIndex], _drawImage.image, _swapChainExtent, _drawExtent);
 
+    //Transition swapchain image so IMGUI can draw to it
+    tsukiutil::transitionImageLayout(commandBuffer, _swapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+    drawImgui(commandBuffer, _swapChainImageViews[swapChainImageIndex]);
+
     //Transition swapchain image to presentable format
-    tsukiutil::transitionImageLayout(commandBuffer, _swapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    tsukiutil::transitionImageLayout(commandBuffer, _swapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
     //End command buffer
     VK_CHECK(vkEndCommandBuffer(commandBuffer));
@@ -184,6 +210,14 @@ void TsukiEngine::run() {
 	while (!glfwWindowShouldClose(window)) {
 		glfwPollEvents();
 
+        //TODO: Make sure events process correctly
+        ImGui_ImplVulkan_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
+        ImGui::ShowDemoWindow();
+        ImGui::Render();
+
 		draw();
 	}
 }
@@ -204,6 +238,27 @@ void TsukiEngine::drawBackground(VkCommandBuffer commandBuffer, uint32_t swapCha
 
     //Dispatch
     vkCmdDispatch(commandBuffer, std::ceil(_drawExtent.width / 16.f), std::ceil(_drawExtent.height / 16.f), 1); //Like a kernel launch
+}
+
+void TsukiEngine::immediateSubmit(std::function<void(VkCommandBuffer commandBuffer)> &&function) {
+    VK_CHECK(vkResetFences(_device, 1, &_immFence));
+    VK_CHECK(vkResetCommandBuffer(_immCommandBuffer, 0));
+
+    VkCommandBuffer commandBuffer = _immCommandBuffer;
+
+    VkCommandBufferBeginInfo cmdBeginInfo = tsukiinit::tCommandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+    VK_CHECK(vkBeginCommandBuffer(commandBuffer, &cmdBeginInfo));
+
+    function(commandBuffer);
+
+    VK_CHECK(vkEndCommandBuffer(commandBuffer));
+
+    VkCommandBufferSubmitInfo cmdinfo = tsukiinit::tCommandBufferSubmitInfo(commandBuffer);
+    VkSubmitInfo2 submit = tsukiinit::tSubmitInfo(&cmdinfo, nullptr, nullptr);
+
+    //_renderFence will now block until the graphics commands finish execution
+    VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submit, _immFence));
+    VK_CHECK(vkWaitForFences(_device, 1, &_immFence, true, 9999999999));
 }
 
 //PRIVATE HELPERS
@@ -267,10 +322,18 @@ void TsukiEngine::initCommands() {
     
         VK_CHECK(vkAllocateCommandBuffers(_device, &commandBufferAllocInfo, &_frames[i]._mainCommandBuffer));
     }
+
+    //Initialize immediate submit
+    VK_CHECK(vkCreateCommandPool(_device, &commandPoolInfo, nullptr, &_immCommandPool));
+
+    VkCommandBufferAllocateInfo immCommandBufferAllocInfo = tsukiinit::tCommandBufferAllocateInfo(_immCommandPool, 1);
+    VK_CHECK(vkAllocateCommandBuffers(_device, &immCommandBufferAllocInfo, &_immCommandBuffer));
+
+    _mainDeletionQueue.push([=]() {vkDestroyCommandPool(_device, _immCommandPool, nullptr); });
+
 }
 
 void TsukiEngine::initSyncStructures() {
-    //TODO: Create synchronization structures
     VkFenceCreateInfo fenceCreateInfo = tsukiinit::tFenceCreateInfo(VK_FENCE_CREATE_SIGNALED_BIT); //Create as pre-signalled, so we don't block immediately
     VkSemaphoreCreateInfo semaphoreCreateInfo = tsukiinit::tSemaphoreCreateInfo();
 
@@ -280,11 +343,17 @@ void TsukiEngine::initSyncStructures() {
         _renderSemaphores.push_back(semaphore);
     }
 
+    //Create a swapchain semaphore for each image in the swapchain, not each frame in flight
     for (int i = 0; i < FRAMES_IN_FLIGHT; ++i) {
         VK_CHECK(vkCreateSemaphore(_device, &semaphoreCreateInfo, nullptr, &_frames[i]._swapChainSemaphore));
 
         VK_CHECK(vkCreateFence(_device, &fenceCreateInfo, nullptr, &_frames[i]._renderFence));
     }
+
+    //Initialize immediate submit
+    VK_CHECK(vkCreateFence(_device, &fenceCreateInfo, nullptr, &_immFence));
+
+    _mainDeletionQueue.push([=]() {vkDestroyFence(_device, _immFence, nullptr); });
 }
 
 void TsukiEngine::createSwapChain(uint32_t width, uint32_t height) {
@@ -441,6 +510,72 @@ void TsukiEngine::initBackgroundPipelines() {
         vkDestroyPipelineLayout(_device, _gradientPipelineLayout, nullptr);
         vkDestroyPipeline(_device, _gradientPipeline, nullptr);
         });
+}
+
+void TsukiEngine::initImgui() { //TODO
+    //Create descriptor pool for IMGUI
+    //TODO: Optimize (?)
+    VkDescriptorPoolSize poolSizes[] = { { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+        { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+        { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 } };
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT; //TODO: Check out what this means
+    poolInfo.maxSets = 1000;
+    poolInfo.poolSizeCount = static_cast<uint32_t>(std::size(poolSizes));
+    poolInfo.pPoolSizes = poolSizes;
+    
+    VkDescriptorPool imguiPool;
+    VK_CHECK(vkCreateDescriptorPool(_device, &poolInfo, nullptr, &imguiPool));
+
+    //Initialize IMGUI
+    ImGui::CreateContext();
+    ImGui_ImplGlfw_InitForVulkan(window, true);
+
+    ImGui_ImplVulkan_InitInfo initInfo{};
+    initInfo.Instance = _instance;
+    initInfo.PhysicalDevice = _physicalDevice;
+    initInfo.Device = _device;
+    initInfo.Queue = _graphicsQueue;
+    initInfo.DescriptorPool = imguiPool;
+    initInfo.MinImageCount = 3;
+    initInfo.ImageCount = 3;
+    initInfo.UseDynamicRendering = true;
+
+    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo = VkPipelineRenderingCreateInfoKHR{};
+    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &_swapChainImageFormat; //We draw IMGUI directly into the swapchain images
+    initInfo.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+
+    ImGui_ImplVulkan_Init(&initInfo);
+    //ImGui_ImplVulkan_CreateFontsTexture();
+
+    //Add to destroy queue
+    _mainDeletionQueue.push([=]() {
+        ImGui_ImplVulkan_Shutdown();
+        vkDestroyDescriptorPool(_device, imguiPool, nullptr);
+        });
+}
+
+void TsukiEngine::drawImgui(VkCommandBuffer commandBuffer, VkImageView targetImageView) {
+    //Set the clear value pointer to nullptr so we load in the compute image as-is
+    VkRenderingAttachmentInfo colorAttachmentInfo = tsukiinit::tRenderingAttachmentInfo(targetImageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    VkRenderingInfo renderingInfo = tsukiinit::tRenderingInfo(_swapChainExtent, &colorAttachmentInfo, nullptr);
+
+    vkCmdBeginRendering(commandBuffer, &renderingInfo); //Activate dynamic rendering
+    //vkCmdBeginRendering and vkCmdEndRendering explicitly tell Vulkan that we're entering a rasterization state
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer); //Records IMGUI stuff to be drawn
+    vkCmdEndRendering(commandBuffer);
 }
 
 //VULKAN SETUP (ADAPTED FROM VULKAN-TUTORIAL)
