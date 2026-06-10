@@ -215,7 +215,23 @@ void TsukiEngine::run() {
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        ImGui::ShowDemoWindow();
+        //ImGui::ShowDemoWindow();
+
+        if (ImGui::Begin("background")) {
+
+            ComputeEffect &selected = backgroundEffects[currBackgroundEffect];
+
+            ImGui::Text("Selected effect: ", selected.name);
+
+            ImGui::SliderInt("Effect Index", &currBackgroundEffect, 0, backgroundEffects.size() - 1);
+
+            ImGui::InputFloat4("data1", (float *)&selected.data.data1);
+            ImGui::InputFloat4("data2", (float *)&selected.data.data2);
+            ImGui::InputFloat4("data3", (float *)&selected.data.data3);
+            ImGui::InputFloat4("data4", (float *)&selected.data.data4);
+        }
+        ImGui::End();
+
         ImGui::Render();
 
 		draw();
@@ -232,9 +248,18 @@ void TsukiEngine::drawBackground(VkCommandBuffer commandBuffer, uint32_t swapCha
     //VkImageSubresourceRange clearRange = tsukiinit::tImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
     //vkCmdClearColorImage(commandBuffer, _swapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
 
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipeline);
-    //Bind the hdescriptor set with the draw image
+    //Pick the pipeline to bind based on the selected effect in IMGUI
+    ComputeEffect &effect = backgroundEffects[currBackgroundEffect];
+
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, effect.pipeline);
+    //Bind the descriptor set with the draw image for the compute pass
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipelineLayout, 0, 1, &_drawImageDescriptors, 0, nullptr);
+
+    /*ComputePushConstants pushConstants;
+    pushConstants.data1 = glm::vec4(1, 0, 0, 1);
+    pushConstants.data2 = glm::vec4(0, 0, 1, 1);*/
+
+    vkCmdPushConstants(commandBuffer, _gradientPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &effect.data);
 
     //Dispatch
     vkCmdDispatch(commandBuffer, std::ceil(_drawExtent.width / 16.f), std::ceil(_drawExtent.height / 16.f), 1); //Like a kernel launch
@@ -475,17 +500,30 @@ void TsukiEngine::initPipelines() {
     initBackgroundPipelines();
 }
 
-void TsukiEngine::initBackgroundPipelines() {
+void TsukiEngine::initBackgroundPipelines() { //TODO: Just copy this over to initPipelines (?)
     VkPipelineLayoutCreateInfo computeLayout{};
     computeLayout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     computeLayout.pNext = nullptr;
     computeLayout.setLayoutCount = 1;
     computeLayout.pSetLayouts = &_drawImageDescriptorLayout;
 
+    VkPushConstantRange pushConstant{};
+    pushConstant.offset = 0;
+    pushConstant.size = sizeof(ComputePushConstants);
+    pushConstant.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    computeLayout.pPushConstantRanges = &pushConstant;
+    computeLayout.pushConstantRangeCount = 1;
+
     VK_CHECK(vkCreatePipelineLayout(_device, &computeLayout, nullptr, &_gradientPipelineLayout));
 
-    VkShaderModule computeDrawShader;
-    if (!tsukiutil::loadShaderModule("./Shaders/gradient.spv", _device, &computeDrawShader)) {
+    VkShaderModule computeGradientShader;
+    if (!tsukiutil::loadShaderModule("./Shaders/gradient.spv", _device, &computeGradientShader)) {
+        std::cerr << "Error building compute shader" << std::endl;
+    }
+
+    VkShaderModule computeColorBlendShader;
+    if (!tsukiutil::loadShaderModule("./Shaders/colorblend.spv", _device, &computeColorBlendShader)) {
         std::cerr << "Error building compute shader" << std::endl;
     }
 
@@ -493,7 +531,7 @@ void TsukiEngine::initBackgroundPipelines() {
     stageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stageInfo.pNext = nullptr;
     stageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    stageInfo.module = computeDrawShader;
+    stageInfo.module = computeGradientShader;
     stageInfo.pName = "main"; //Entry point (?)
 
     VkComputePipelineCreateInfo computePipelineCreateInfo{};
@@ -502,13 +540,36 @@ void TsukiEngine::initBackgroundPipelines() {
     computePipelineCreateInfo.layout = _gradientPipelineLayout;
     computePipelineCreateInfo.stage = stageInfo;
 
-    VK_CHECK(vkCreateComputePipelines(_device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &_gradientPipeline));
+    ComputeEffect gradient;
+    gradient.layout = _gradientPipelineLayout;
+    gradient.name = "gradient";
+    gradient.data = {};
 
-    vkDestroyShaderModule(_device, computeDrawShader, nullptr);
+    VK_CHECK(vkCreateComputePipelines(_device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &gradient.pipeline));
 
-    _mainDeletionQueue.push([&]() {
+    stageInfo.module = computeColorBlendShader;
+    computePipelineCreateInfo.stage = stageInfo; //Was copied by value, so I have to reassign the modified version
+
+    ComputeEffect colorBlend;
+    colorBlend.layout = _gradientPipelineLayout;
+    colorBlend.name = "color blend";
+    colorBlend.data = {};
+
+    colorBlend.data.data1 = glm::vec4(1, 0, 0, 1);
+    colorBlend.data.data2 = glm::vec4(0, 0, 1, 1);
+
+    VK_CHECK(vkCreateComputePipelines(_device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &colorBlend.pipeline));
+
+    backgroundEffects.push_back(gradient);
+    backgroundEffects.push_back(colorBlend);
+
+    vkDestroyShaderModule(_device, computeGradientShader, nullptr);
+    vkDestroyShaderModule(_device, computeColorBlendShader, nullptr);
+
+    _mainDeletionQueue.push([=]() {
         vkDestroyPipelineLayout(_device, _gradientPipelineLayout, nullptr);
-        vkDestroyPipeline(_device, _gradientPipeline, nullptr);
+        vkDestroyPipeline(_device, colorBlend.pipeline, nullptr);
+        vkDestroyPipeline(_device, gradient.pipeline, nullptr);
         });
 }
 

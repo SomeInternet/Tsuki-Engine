@@ -92,5 +92,8 @@
     <None Include="Shaders\compile.bat">
       <Filter>Shaders</Filter>
     </None>
+    <None Include="Shaders\colorblend.slang">
+      <Filter>Shaders</Filter>
+    </None>
   </ItemGroup>
 </Project>

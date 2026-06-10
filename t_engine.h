@@ -7,6 +7,22 @@
 
 constexpr unsigned int FRAMES_IN_FLIGHT = 2;
 
+struct ComputePushConstants { //TODO: Check device specs to see limits of how much can be pushed
+	glm::vec4 data1;
+	glm::vec4 data2;
+	glm::vec4 data3;
+	glm::vec4 data4;
+};
+
+struct ComputeEffect {
+	const char *name;
+
+	VkPipeline pipeline;
+	VkPipelineLayout layout;
+
+	ComputePushConstants data;
+};
+
 class TsukiEngine {
 public:
 
@@ -50,6 +66,9 @@ public:
 
 	VkPipeline _gradientPipeline;
 	VkPipelineLayout _gradientPipelineLayout;
+
+	std::vector<ComputeEffect> backgroundEffects;
+	int currBackgroundEffect{ 0 };
 
 	//IMGUI
 	VkFence _immFence;
