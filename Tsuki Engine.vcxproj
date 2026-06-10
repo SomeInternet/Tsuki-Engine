@@ -143,12 +143,16 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="t_descriptors.cpp" />
     <ClCompile Include="t_engine.cpp" />
     <ClCompile Include="t_images.cpp" />
     <ClCompile Include="t_initializers.cpp" />
+    <ClCompile Include="t_pipelines.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="README.md" />
+    <None Include="Shaders\compile.bat" />
+    <None Include="Shaders\gradient.slang" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

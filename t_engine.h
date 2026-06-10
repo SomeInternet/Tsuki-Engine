@@ -1,5 +1,6 @@
 #pragma once
 #include "t_types.h"
+#include "t_descriptors.h"
 
 #define WIDTH 1700
 #define HEIGHT 900
@@ -42,21 +43,36 @@ public:
 	AllocatedImage _drawImage;
 	VkExtent2D _drawExtent;
 
+	DescriptorAllocator globalDescriptorAllocator;
+
+	VkDescriptorSet _drawImageDescriptors;
+	VkDescriptorSetLayout _drawImageDescriptorLayout;
+
+	VkPipeline _gradientPipeline;
+	VkPipelineLayout _gradientPipelineLayout;
+
 	//Additional helper members
 	DeletionQueue _mainDeletionQueue;
 	VmaAllocator _allocator;
 
 	static TsukiEngine &Get();
+	FrameData &getCurrFrame() { return _frames[_frameNum % FRAMES_IN_FLIGHT]; }
 
+	//MAIN FUNCTIONS
+	//===================================================================================================================
 	void init();
 	void cleanup();
 	void draw(); //Draw loop
 	void run(); //Run main loop
 
-	FrameData &getCurrFrame() { return _frames[_frameNum % FRAMES_IN_FLIGHT]; }
+	//PUBLIC HELPERS
+	//===================================================================================================================
+	void drawBackground(VkCommandBuffer commandBuffer, uint32_t swapChainImageIndex);
 
 private:
 
+	//PRIVATE HELPERS
+	//===================================================================================================================
 	void initVulkan();
 	void initSwapChain();
 	void initCommands();
@@ -64,6 +80,11 @@ private:
 
 	void createSwapChain(uint32_t width, uint32_t height);
 	void destroySwapChain();
+
+	void initDescriptors();
+
+	void initPipelines();
+	void initBackgroundPipelines();
 
 	//VULKAN SETUP (ADAPTED FROM VULKAN-TUTORIAL)
 	//===================================================================================================================

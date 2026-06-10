@@ -9,6 +9,7 @@
 #include "t_initializers.h"
 #include "t_types.h"
 #include "t_images.h"
+#include "t_pipelines.h"
 
 #if _DEBUG
 constexpr bool enableValidationLayers = true;
@@ -53,6 +54,8 @@ TsukiEngine *loadedEngine = nullptr;
 
 TsukiEngine &TsukiEngine::Get() { return *loadedEngine; }
 
+//MAIN FUNCTIONS
+//===================================================================================================================
 void TsukiEngine::init() {
 	assert(loadedEngine == nullptr);
 	loadedEngine = this;
@@ -68,6 +71,10 @@ void TsukiEngine::init() {
 	initSwapChain();
 	initCommands();
 	initSyncStructures();
+
+    initDescriptors();
+
+    initPipelines();
 
 	_isInit = true;
 }
@@ -122,30 +129,33 @@ void TsukiEngine::draw() {
 
     VK_CHECK(vkResetFences(_device, 1, &getCurrFrame()._renderFence)); //Reset the fence
 
+    _drawExtent.width = _drawImage.imageExtent.width;
+    _drawExtent.height = _drawImage.imageExtent.height;
+
     //Begin command buffer
     VkCommandBuffer commandBuffer = getCurrFrame()._mainCommandBuffer;
     VK_CHECK(vkResetCommandBuffer(commandBuffer, 0));
     VkCommandBufferBeginInfo commandBufferBeginInfo = tsukiinit::tCommandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT); //1-time command buffer (we re-record each frame)
     VK_CHECK(vkBeginCommandBuffer(commandBuffer, &commandBufferBeginInfo));
 
-    //TODO: Record commands
     //Transition image to writeable format
-    tsukiutil::transitionImageLayout(commandBuffer, _swapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    tsukiutil::transitionImageLayout(commandBuffer, _drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
 
-    //Clear the image color
-    VkClearColorValue clearValue;
-    float flash = std::abs(std::sin(_frameNum / 120.f));
-    clearValue = { { 0.0f, 0.0f, flash, 1.0f } };
-    VkImageSubresourceRange clearRange = tsukiinit::tImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
-    vkCmdClearColorImage(commandBuffer, _swapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
+    drawBackground(commandBuffer, swapChainImageIndex);
 
-    //Transition image to presentable format
-    tsukiutil::transitionImageLayout(commandBuffer, _swapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    //Transition the draw image and the swapchain image to execute copy
+    tsukiutil::transitionImageLayout(commandBuffer, _swapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    tsukiutil::transitionImageLayout(commandBuffer, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
-    //TODO: End command buffer
+    tsukiutil::copyImage(commandBuffer, _swapChainImages[swapChainImageIndex], _drawImage.image, _swapChainExtent, _drawExtent);
+
+    //Transition swapchain image to presentable format
+    tsukiutil::transitionImageLayout(commandBuffer, _swapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+
+    //End command buffer
     VK_CHECK(vkEndCommandBuffer(commandBuffer));
 
-    //TODO: Submit the command buffer to the queue
+    //Submit the command buffer to the queue
     VkCommandBufferSubmitInfo commandBufferSubmitInfo = tsukiinit::tCommandBufferSubmitInfo(commandBuffer);
     VkSemaphoreSubmitInfo waitSemaphoreSubmitInfo = tsukiinit::tSemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
         getCurrFrame()._swapChainSemaphore); //Wait on the swap chain semaphore to begin writing to the image (when we receive the image, it's safe to write to)
@@ -178,6 +188,26 @@ void TsukiEngine::run() {
 	}
 }
 
+//PUBLIC HELPERS
+//===================================================================================================================
+void TsukiEngine::drawBackground(VkCommandBuffer commandBuffer, uint32_t swapChainImageIndex) {
+    //Clear the image color
+    //VkClearColorValue clearValue;
+    //float flash = std::abs(std::sin(_frameNum / 120.f));
+    //clearValue = { { 0.0f, 0.0f, flash, 1.0f } };
+    //VkImageSubresourceRange clearRange = tsukiinit::tImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
+    //vkCmdClearColorImage(commandBuffer, _swapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
+
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipeline);
+    //Bind the hdescriptor set with the draw image
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipelineLayout, 0, 1, &_drawImageDescriptors, 0, nullptr);
+
+    //Dispatch
+    vkCmdDispatch(commandBuffer, std::ceil(_drawExtent.width / 16.f), std::ceil(_drawExtent.height / 16.f), 1); //Like a kernel launch
+}
+
+//PRIVATE HELPERS
+//===================================================================================================================
 void TsukiEngine::initVulkan() {
     createInstance();
     setupDebugMessenger();
@@ -257,8 +287,6 @@ void TsukiEngine::initSyncStructures() {
     }
 }
 
-//HELPERS
-//===================================================================================================================
 void TsukiEngine::createSwapChain(uint32_t width, uint32_t height) {
     //We need:
         //1) basic surface capabilities (min/max images in swap chain, min/max width and height of images, etc.)
@@ -317,6 +345,7 @@ void TsukiEngine::createSwapChain(uint32_t width, uint32_t height) {
     //Create image views of the swap chain images
     for (int i = 0; i < _swapChainImages.size(); ++i) {
         VkImageViewCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         info.pNext = nullptr;
         info.image = _swapChainImages[i];
         info.viewType = VK_IMAGE_VIEW_TYPE_2D;
@@ -326,6 +355,10 @@ void TsukiEngine::createSwapChain(uint32_t width, uint32_t height) {
         info.subresourceRange.levelCount = 1;
         info.subresourceRange.baseArrayLayer = 0;
         info.subresourceRange.layerCount = 1;
+
+        VkImageView view;
+        VK_CHECK(vkCreateImageView(_device, &info, nullptr, &view));
+        _swapChainImageViews.push_back(view);
     }
 }
 
@@ -334,6 +367,80 @@ void TsukiEngine::destroySwapChain() {
     for (int i = 0; i < _swapChainImageViews.size(); ++i) { //TODO: Optimize?
         vkDestroyImageView(_device, _swapChainImageViews[i], nullptr);
     }
+}
+
+void TsukiEngine::initDescriptors() {
+    std::vector<DescriptorAllocator::PoolSizeRatio> sizes = { {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1} }; //1 storage image (image writeable to from compute shader) per descriptor set
+    globalDescriptorAllocator.initPool(_device, 10, sizes); //Max 10 descriptor sets
+
+    DescriptorLayoutBuilder builder;
+    builder.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE); //Promise an image at binding 0
+    _drawImageDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_COMPUTE_BIT);
+
+    _drawImageDescriptors = globalDescriptorAllocator.allocate(_device, _drawImageDescriptorLayout); //Allocate 1 image
+
+    VkDescriptorImageInfo imageInfo{};
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    imageInfo.imageView = _drawImage.imageView;
+
+    VkWriteDescriptorSet drawImageWrite{};
+    drawImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;;
+    drawImageWrite.pNext = nullptr;
+
+    //Create a write pointing to the binding (0) and our image (via the image view)
+    drawImageWrite.dstBinding = 0;
+    drawImageWrite.dstSet = _drawImageDescriptors;
+    drawImageWrite.descriptorCount = 1;
+    drawImageWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    drawImageWrite.pImageInfo = &imageInfo;
+
+    vkUpdateDescriptorSets(_device, 1, &drawImageWrite, 0, nullptr);
+
+    _mainDeletionQueue.push([&]() {
+        globalDescriptorAllocator.destroyPool(_device);
+        vkDestroyDescriptorSetLayout(_device, _drawImageDescriptorLayout, nullptr);
+        });
+}
+
+void TsukiEngine::initPipelines() {
+    initBackgroundPipelines();
+}
+
+void TsukiEngine::initBackgroundPipelines() {
+    VkPipelineLayoutCreateInfo computeLayout{};
+    computeLayout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    computeLayout.pNext = nullptr;
+    computeLayout.setLayoutCount = 1;
+    computeLayout.pSetLayouts = &_drawImageDescriptorLayout;
+
+    VK_CHECK(vkCreatePipelineLayout(_device, &computeLayout, nullptr, &_gradientPipelineLayout));
+
+    VkShaderModule computeDrawShader;
+    if (!tsukiutil::loadShaderModule("./Shaders/gradient.spv", _device, &computeDrawShader)) {
+        std::cerr << "Error building compute shader" << std::endl;
+    }
+
+    VkPipelineShaderStageCreateInfo stageInfo{};
+    stageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stageInfo.pNext = nullptr;
+    stageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    stageInfo.module = computeDrawShader;
+    stageInfo.pName = "main"; //Entry point (?)
+
+    VkComputePipelineCreateInfo computePipelineCreateInfo{};
+    computePipelineCreateInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    computePipelineCreateInfo.pNext = nullptr;
+    computePipelineCreateInfo.layout = _gradientPipelineLayout;
+    computePipelineCreateInfo.stage = stageInfo;
+
+    VK_CHECK(vkCreateComputePipelines(_device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &_gradientPipeline));
+
+    vkDestroyShaderModule(_device, computeDrawShader, nullptr);
+
+    _mainDeletionQueue.push([&]() {
+        vkDestroyPipelineLayout(_device, _gradientPipelineLayout, nullptr);
+        vkDestroyPipeline(_device, _gradientPipeline, nullptr);
+        });
 }
 
 //VULKAN SETUP (ADAPTED FROM VULKAN-TUTORIAL)

@@ -13,7 +13,9 @@ a) *Consider switching to SDL*
 2) **Enable `VK_KHR_external_memory_capabilities` extension, `VK_KHR_external` memory on device, and `VK_KHR_external_memory_win32` (O)**
 3) **Implement quad rendering w/ image textures in Vulkan (-)**
 a) *Setup Vulkan instance, physical device, surface, and logical device (O)*
-b) *Setup Vulkan swapchain (-)*
+b) *Setup Vulkan swapchain (O)*
+b) *Setup synchronization devices, frames in flight (O)*
+b) *Walk through compute shader rendering (-)*
 4) Implement GLTF loading to CUDA
 5) Implement multiple object rasterization in Vulkan
 6) Implement CUDA pathtracing
@@ -49,5 +51,4 @@ External libraries used:
 * `DearIMGui`
 * `GLM`
 * `tinyGLTF`
-* `FMT`
 * `GLFW`

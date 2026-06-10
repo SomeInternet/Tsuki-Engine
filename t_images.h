@@ -5,5 +5,5 @@
 namespace tsukiutil {
 	void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout currLayout, VkImageLayout newLayout);
 
-	void memcpyImage(VkCommandBuffer commandBuffer, VkImage src, VkImage dst, VkExtent2D srcExtent, VkExtent2D dstExtent);
+	void copyImage(VkCommandBuffer commandBuffer, VkImage dst, VkImage src, VkExtent2D dstExtent, VkExtent2D srcExtent);
 };

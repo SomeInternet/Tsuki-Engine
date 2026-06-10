@@ -31,6 +31,37 @@ void tsukiutil::transitionImageLayout(VkCommandBuffer commandBuffer, VkImage ima
     vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
 }
 
-void tsukiutil::memcpyImage(VkCommandBuffer commandBuffer, VkImage src, VkImage dst, VkExtent2D srcExtent, VkExtent2D dstExtent) {
+void tsukiutil::copyImage(VkCommandBuffer commandBuffer, VkImage dst, VkImage src, VkExtent2D dstExtent, VkExtent2D srcExtent) {
+    //VkCmdCopyImage is another way of copying 1 image to another, but VkCmdBlitImage allows copying between images of different sizes and formats
+    VkImageBlit2 blit{};
+    blit.sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2;
+    blit.pNext = nullptr;
+    blit.srcOffsets[1].x = srcExtent.width;
+    blit.srcOffsets[1].y = srcExtent.height;
+    blit.srcOffsets[1].z = 1;
+    blit.dstOffsets[1].x = dstExtent.width;
+    blit.dstOffsets[1].y = dstExtent.height;
+    blit.dstOffsets[1].z = 1;
 
+    blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    blit.srcSubresource.baseArrayLayer = 0;
+    blit.srcSubresource.layerCount = 1;
+    blit.srcSubresource.mipLevel = 0;
+
+    blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    blit.dstSubresource.baseArrayLayer = 0;
+    blit.dstSubresource.layerCount = 1;
+    blit.dstSubresource.mipLevel = 0;
+
+    VkBlitImageInfo2 blitInfo{};
+    blitInfo.sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2;
+    blitInfo.dstImage = dst;
+    blitInfo.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    blitInfo.srcImage = src;
+    blitInfo.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    blitInfo.filter = VK_FILTER_LINEAR;
+    blitInfo.regionCount = 1;
+    blitInfo.pRegions = &blit;
+
+    vkCmdBlitImage2(commandBuffer, &blitInfo);
 }

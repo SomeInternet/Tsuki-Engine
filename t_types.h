@@ -9,6 +9,7 @@
 #include <array>
 #include <functional>
 #include <deque>
+#include <iostream>
 
 #define NOMINMAX //Stop windows.h definitions of min and max
 #define VK_USE_PLATFORM_WIN32_KHR //Allows us to enable KHR external memory win32
@@ -97,3 +98,5 @@ struct AllocatedImage {
 //will be available at what stage of the pipeline. It groupts descriptor set layout bindings
 
 //Extensions fall into 2 categories: instance and device. Instance extensions enable Vulkan capabilities independent of the physical device
+
+//A Blit is a GPU-accelerated operation for pixel data transfer from 1 image to another

@@ -1,0 +1,3 @@
+:: CHAPTER 2 GRADIENT COMPUTE SHADER
+C:/VulkanSDK/1.4.335.0/Bin/slangc.exe gradient.slang -o gradient.spv
+pause
