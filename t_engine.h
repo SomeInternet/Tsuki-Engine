@@ -74,6 +74,12 @@ public:
 	VkPipelineLayout _trianglePipelineLayout;
 	VkPipeline _trianglePipeline;
 
+	VkPipelineLayout _meshPipelineLayout;
+	VkPipeline _meshPipeline;
+
+	GPUMeshBuffers rectangle;
+	//
+
 	//IMGUI
 	VkFence _immFence;
 	VkCommandBuffer _immCommandBuffer;
@@ -122,6 +128,18 @@ private:
 	//Chapter 3
 	void initTrianglePipeline();
 	void drawGeometry(VkCommandBuffer commandBuffer);
+
+	void initMeshPipeline();
+	void initDefaultMeshData();
+	//
+
+	//TODO: Move this elswhere?
+	AllocatedBuffer createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
+	void destroyBuffer(const AllocatedBuffer &buffer);
+
+	//MESH HELPERS
+	//===================================================================================================================
+	GPUMeshBuffers uploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
 
 	//VULKAN SETUP (ADAPTED FROM VULKAN-TUTORIAL)
 	//===================================================================================================================

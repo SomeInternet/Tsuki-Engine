@@ -89,6 +89,33 @@ struct AllocatedImage {
 	VkFormat imageFormat;
 };
 
+struct AllocatedBuffer {
+	VkBuffer buffer; //Vulkan handle to the buffer
+	VmaAllocation allocation;
+	VmaAllocationInfo info;
+};
+
+struct Vertex {
+	//Structured for efficient memory alignment
+	//Apparently, GPU's like aligning data structures to 4 byte slots
+	glm::vec3 pos;
+	float uvX;
+	glm::vec3 normal;
+	float uvY;
+	glm::vec4 color;
+};
+
+struct GPUMeshBuffers {
+	AllocatedBuffer indexBuffer;
+	AllocatedBuffer vertexBuffer;
+	VkDeviceAddress vertexBufferAddress;
+};
+
+struct GPUDrawPushConstants {
+	glm::mat4 worldMatrix;
+	VkDeviceAddress vertexBuffer;
+};
+
 //REVIEW:
 //Command pools are thread-isolated pieces of memory corresponding to a queue family.
 //We allocated command buffers from them, which can be submitted to a queue in the queue family
@@ -100,3 +127,10 @@ struct AllocatedImage {
 //Extensions fall into 2 categories: instance and device. Instance extensions enable Vulkan capabilities independent of the physical device
 
 //A Blit is a GPU-accelerated operation for pixel data transfer from 1 image to another
+
+//NOTES:
+//Spans are like views into arrays. They denote a contiguous region of memory hosting a certain number elements of a certain type
+
+//Descriptor set layouts are like a class. They tell us how a descriptor set will be laid out. A descriptor set is sort of like
+//an instance of that class. A descriptor is a pointer to GPU data accompanied by metadata. A pipeline layout tells the pipeline
+//what kinds of resources will be available and when

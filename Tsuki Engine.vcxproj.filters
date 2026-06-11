@@ -98,5 +98,8 @@
     <None Include="Shaders\triangle.slang">
       <Filter>Shaders</Filter>
     </None>
+    <None Include="Shaders\buffertest.slang">
+      <Filter>Shaders</Filter>
+    </None>
   </ItemGroup>
 </Project>

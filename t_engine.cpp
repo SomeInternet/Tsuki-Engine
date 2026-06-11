@@ -80,6 +80,9 @@ void TsukiEngine::init() {
 
     initPipelines();
     initTrianglePipeline();
+    initMeshPipeline();
+
+    initDefaultMeshData();
 
     initImgui();
 
@@ -646,6 +649,7 @@ void TsukiEngine::drawImgui(VkCommandBuffer commandBuffer, VkImageView targetIma
     vkCmdEndRendering(commandBuffer);
 }
 
+//Chapter 3
 void TsukiEngine::initTrianglePipeline() {
     VkShaderModule triangleShader;
     if (!tsukiutil::loadShaderModule("./Shaders/triangle.spv", _device, &triangleShader)) {
@@ -706,8 +710,167 @@ void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer) {
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
     vkCmdDraw(commandBuffer, 3, 1, 0, 0); //Draw 3 vertices
+
+    GPUDrawPushConstants pushConstants;
+    pushConstants.worldMatrix = glm::mat4{ 1.f };
+    pushConstants.vertexBuffer = rectangle.vertexBufferAddress;
+
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipeline);
+
+    vkCmdPushConstants(commandBuffer, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pushConstants);
+    vkCmdBindIndexBuffer(commandBuffer, rectangle.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+
+    vkCmdDrawIndexed(commandBuffer, 6, 1, 0, 0, 0);
     
     vkCmdEndRendering(commandBuffer);
+}
+
+void TsukiEngine::initMeshPipeline() {
+    VkShaderModule meshShader;
+    if (!tsukiutil::loadShaderModule("./Shaders/buffertest.spv", _device, &meshShader)) {
+        std::cerr << "Error building buffertest shader" << std::endl;
+    }
+
+    //Set up push constants
+    VkPushConstantRange bufferRange{};
+    bufferRange.offset = 0;
+    bufferRange.size = sizeof(GPUDrawPushConstants);
+    bufferRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo = tsukiinit::tPipelineLayoutCreateInfo();
+    //Include push constants in the pipeline layout
+    pipelineLayoutInfo.pushConstantRangeCount = 1;
+    pipelineLayoutInfo.pPushConstantRanges = &bufferRange;
+
+    VK_CHECK(vkCreatePipelineLayout(_device, &pipelineLayoutInfo, nullptr, &_meshPipelineLayout));
+
+    PipelineBuilder pipelineBuilder;
+    pipelineBuilder._pipelineLayout = _meshPipelineLayout;
+    pipelineBuilder.setShaders(meshShader, meshShader, "vertMain", "fragMain");
+    pipelineBuilder.setInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST); //Draw meshs
+    pipelineBuilder.setPolygonMode(VK_POLYGON_MODE_FILL);
+    pipelineBuilder.setCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+    pipelineBuilder.setMultisamplingNone();
+    pipelineBuilder.disableBlending();
+    pipelineBuilder.disableDepthTest();
+
+    pipelineBuilder.setColorAttachmentFormat(_drawImage.imageFormat);
+    pipelineBuilder.setDepthFormat(VK_FORMAT_UNDEFINED); //We don't have a depth attachment
+
+    _meshPipeline = pipelineBuilder.build(_device);
+
+    vkDestroyShaderModule(_device, meshShader, nullptr);
+
+    _mainDeletionQueue.push([&]() {
+        vkDestroyPipelineLayout(_device, _meshPipelineLayout, nullptr);
+        vkDestroyPipeline(_device, _meshPipeline, nullptr);
+        });
+}
+
+void TsukiEngine::initDefaultMeshData() {
+    std::array<Vertex, 4> vertices;
+
+    vertices[0].pos = { 0.5,-0.5, 0 };
+    vertices[1].pos = { 0.5,0.5, 0 };
+    vertices[2].pos = { -0.5,-0.5, 0 };
+    vertices[3].pos = { -0.5,0.5, 0 };
+
+    vertices[0].color = { 0,0, 0,1 };
+    vertices[1].color = { 0.5,0.5,0.5 ,1 };
+    vertices[2].color = { 1,0, 0,1 };
+    vertices[3].color = { 0,1, 0,1 };
+
+    std::array<uint32_t, 6> indices;
+
+    indices[0] = 0;
+    indices[1] = 1;
+    indices[2] = 2;
+
+    indices[3] = 2;
+    indices[4] = 1;
+    indices[5] = 3;
+
+    rectangle = uploadMesh(indices, vertices);
+
+    //delete the rectangle data on engine shutdown
+    _mainDeletionQueue.push([&]() {
+        destroyBuffer(rectangle.indexBuffer);
+        destroyBuffer(rectangle.vertexBuffer);
+        });
+}
+//End chapter 3
+
+AllocatedBuffer TsukiEngine::createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage) {
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.pNext = nullptr;
+    bufferInfo.size = allocSize;
+    bufferInfo.usage = usage;
+    
+    VmaAllocationCreateInfo vmaAllocInfo{};
+    vmaAllocInfo.usage = memoryUsage; //The usage flags influences where VMA places our buffer
+    vmaAllocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT; //Create memory mapped to the CPU's address space (like vkMapMemory)
+    //The mapping isn't automatically kept consistent, for performance reasons
+    AllocatedBuffer newBuffer;
+
+    VK_CHECK(vmaCreateBuffer(_allocator, &bufferInfo, &vmaAllocInfo, &newBuffer.buffer, &newBuffer.allocation, &newBuffer.info));
+
+    return newBuffer;
+}
+
+void TsukiEngine::destroyBuffer(const AllocatedBuffer &buffer) {
+    vmaDestroyBuffer(_allocator, buffer.buffer, buffer.allocation);
+}
+
+//MESH HELPERS
+//===================================================================================================================
+GPUMeshBuffers TsukiEngine::uploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices) {
+    const size_t vertexBufferSize = vertices.size() * sizeof(Vertex);
+    const size_t indexBufferSize = indices.size() * sizeof(uint32_t);
+
+    GPUMeshBuffers mesh;
+
+    //Allocate a buffer on the GPU to hold the vertices
+    mesh.vertexBuffer = createBuffer(vertexBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        VMA_MEMORY_USAGE_GPU_ONLY);
+
+    //Get the address of the allocated vertex buffer
+    VkBufferDeviceAddressInfo deviceAddressInfo{};
+    deviceAddressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+    deviceAddressInfo.buffer = mesh.vertexBuffer.buffer;
+
+    mesh.vertexBufferAddress = vkGetBufferDeviceAddress(_device, &deviceAddressInfo);
+
+    //Allocate a buffer on the GPU to hold the indices
+    mesh.indexBuffer = createBuffer(indexBufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VMA_MEMORY_USAGE_GPU_ONLY);
+
+    AllocatedBuffer stagingBuffer = createBuffer(vertexBufferSize + indexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+    void *data = stagingBuffer.allocation->GetMappedData();
+    memcpy(data, vertices.data(), vertexBufferSize);
+    memcpy((char *)data + vertexBufferSize, indices.data(), indexBufferSize);
+
+    immediateSubmit([&](VkCommandBuffer commandBuffer) { //NOTE: Perhaps later, push this task to a background thread
+        //Copy the data from the staging buffer to the GPU-side vertex buffer
+        VkBufferCopy vertexBufferCopy{};
+        vertexBufferCopy.dstOffset = 0;
+        vertexBufferCopy.srcOffset = 0;;
+        vertexBufferCopy.size = vertexBufferSize;
+
+        vkCmdCopyBuffer(commandBuffer, stagingBuffer.buffer, mesh.vertexBuffer.buffer, 1, &vertexBufferCopy);
+
+        //Do the same with the index buffer
+        VkBufferCopy indexBufferCopy{};
+        indexBufferCopy.dstOffset = 0;
+        indexBufferCopy.srcOffset = vertexBufferSize;
+        indexBufferCopy.size = indexBufferSize;
+
+        vkCmdCopyBuffer(commandBuffer, stagingBuffer.buffer, mesh.indexBuffer.buffer, 1, &indexBufferCopy);
+        });
+
+    destroyBuffer(stagingBuffer);
+
+    return mesh;
 }
 
 //VULKAN SETUP (ADAPTED FROM VULKAN-TUTORIAL)
