@@ -296,7 +296,7 @@ VkPipelineLayoutCreateInfo tsukiinit::tPipelineLayoutCreateInfo() {
 
 VkPipelineShaderStageCreateInfo tsukiinit::tPipelineShaderStageCreateInfo(VkShaderStageFlagBits stage,
     VkShaderModule shaderModule,
-    const char *entry) {
+    const char *entry /*= "main"*/ ) {
     VkPipelineShaderStageCreateInfo info{};
 
     info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;

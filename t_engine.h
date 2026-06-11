@@ -70,6 +70,10 @@ public:
 	std::vector<ComputeEffect> backgroundEffects;
 	int currBackgroundEffect{ 0 };
 
+	//Chapter 3
+	VkPipelineLayout _trianglePipelineLayout;
+	VkPipeline _trianglePipeline;
+
 	//IMGUI
 	VkFence _immFence;
 	VkCommandBuffer _immCommandBuffer;
@@ -114,6 +118,10 @@ private:
 
 	void initImgui();
 	void drawImgui(VkCommandBuffer commandBuffer, VkImageView targetImageView);
+
+	//Chapter 3
+	void initTrianglePipeline();
+	void drawGeometry(VkCommandBuffer commandBuffer);
 
 	//VULKAN SETUP (ADAPTED FROM VULKAN-TUTORIAL)
 	//===================================================================================================================

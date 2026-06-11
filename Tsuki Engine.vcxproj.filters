@@ -95,5 +95,8 @@
     <None Include="Shaders\colorblend.slang">
       <Filter>Shaders</Filter>
     </None>
+    <None Include="Shaders\triangle.slang">
+      <Filter>Shaders</Filter>
+    </None>
   </ItemGroup>
 </Project>

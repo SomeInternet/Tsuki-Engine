@@ -161,6 +161,7 @@
     <None Include="Shaders\colorblend.slang" />
     <None Include="Shaders\compile.bat" />
     <None Include="Shaders\gradient.slang" />
+    <None Include="Shaders\triangle.slang" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

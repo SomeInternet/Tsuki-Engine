@@ -79,6 +79,7 @@ void TsukiEngine::init() {
     initDescriptors();
 
     initPipelines();
+    initTrianglePipeline();
 
     initImgui();
 
@@ -163,10 +164,16 @@ void TsukiEngine::draw() {
     //Compute shader
     drawBackground(commandBuffer, swapChainImageIndex);
 
+    //Transition image to draw geometry
+    tsukiutil::transitionImageLayout(commandBuffer, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL); //Rasterization draws are optimized on color attachment optimal
+
+    //Draw geometry
+    drawGeometry(commandBuffer);
+
     //Transition the draw image and the swapchain image to execute copy
     //Recall that within these helpers, we set a barrier that prevents further execution until the instructions before (compute pass) is finished
     tsukiutil::transitionImageLayout(commandBuffer, _swapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    tsukiutil::transitionImageLayout(commandBuffer, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    tsukiutil::transitionImageLayout(commandBuffer, _drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
     tsukiutil::copyImage(commandBuffer, _swapChainImages[swapChainImageIndex], _drawImage.image, _swapChainExtent, _drawExtent);
 
@@ -636,6 +643,70 @@ void TsukiEngine::drawImgui(VkCommandBuffer commandBuffer, VkImageView targetIma
     vkCmdBeginRendering(commandBuffer, &renderingInfo); //Activate dynamic rendering
     //vkCmdBeginRendering and vkCmdEndRendering explicitly tell Vulkan that we're entering a rasterization state
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer); //Records IMGUI stuff to be drawn
+    vkCmdEndRendering(commandBuffer);
+}
+
+void TsukiEngine::initTrianglePipeline() {
+    VkShaderModule triangleShader;
+    if (!tsukiutil::loadShaderModule("./Shaders/triangle.spv", _device, &triangleShader)) {
+        std::cerr << "Error building triangle shader" << std::endl;
+    }
+
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo = tsukiinit::tPipelineLayoutCreateInfo();
+    VK_CHECK(vkCreatePipelineLayout(_device, &pipelineLayoutInfo, nullptr, &_trianglePipelineLayout));
+
+    PipelineBuilder pipelineBuilder;
+    pipelineBuilder._pipelineLayout = _trianglePipelineLayout;
+    pipelineBuilder.setShaders(triangleShader, triangleShader, "vertMain", "fragMain");
+    pipelineBuilder.setInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST); //Draw triangles
+    pipelineBuilder.setPolygonMode(VK_POLYGON_MODE_FILL);
+    pipelineBuilder.setCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+    pipelineBuilder.setMultisamplingNone();
+    pipelineBuilder.disableBlending();
+    pipelineBuilder.disableDepthTest();
+
+    pipelineBuilder.setColorAttachmentFormat(_drawImage.imageFormat);
+    pipelineBuilder.setDepthFormat(VK_FORMAT_UNDEFINED); //We don't have a depth attachment
+
+    _trianglePipeline = pipelineBuilder.build(_device);
+
+    vkDestroyShaderModule(_device, triangleShader, nullptr);
+
+    _mainDeletionQueue.push([&]() {
+        vkDestroyPipelineLayout(_device, _trianglePipelineLayout, nullptr);
+        vkDestroyPipeline(_device, _trianglePipeline, nullptr);
+        });
+}
+
+void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer) {
+    VkRenderingAttachmentInfo colorAttachment = tsukiinit::tAttachmentInfo(_drawImage.imageView, nullptr);
+
+    VkRenderingInfo renderInfo = tsukiinit::tRenderingInfo(_drawExtent, &colorAttachment, nullptr);
+    vkCmdBeginRendering(commandBuffer, &renderInfo);
+
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _trianglePipeline);
+
+    //Dynamically set viewport and scissor
+    VkViewport viewport{};
+    viewport.x = 0;
+    viewport.y = 0;
+    viewport.width = _drawExtent.width;
+    viewport.height = _drawExtent.height;
+    viewport.minDepth = 0;
+    viewport.maxDepth = 1;
+
+    vkCmdSetViewport(commandBuffer, 0, 1, &viewport); //0 is the index of the first viewport, 1 viewport
+
+    VkRect2D scissor{};
+    scissor.offset.x = 0;
+    scissor.offset.y = 0;
+    scissor.extent.width = _drawExtent.width;
+    scissor.extent.height = _drawExtent.height;
+
+    vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+    vkCmdDraw(commandBuffer, 3, 1, 0, 0); //Draw 3 vertices
+    
     vkCmdEndRendering(commandBuffer);
 }
 

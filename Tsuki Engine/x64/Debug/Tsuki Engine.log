@@ -1,7 +1,4 @@
-﻿  t_engine.cpp
-C:\Users\thoma\source\repos\Tsuki Engine\t_engine.cpp(226,97): warning C4267: 'argument': conversion from 'size_t' to 'int', possible loss of data
-C:\Users\thoma\source\repos\Tsuki Engine\t_engine.cpp(265,80): warning C4244: 'argument': conversion from 'float' to 'uint32_t', possible loss of data
-C:\Users\thoma\source\repos\Tsuki Engine\t_engine.cpp(265,43): warning C4244: 'argument': conversion from 'float' to 'uint32_t', possible loss of data
+﻿  t_pipelines.cpp
   Tsuki Engine.vcxproj -> C:\Users\thoma\source\repos\Tsuki Engine\x64\Debug\Tsuki Engine.exe
   'pwsh.exe' is not recognized as an internal or external command,
   operable program or batch file.

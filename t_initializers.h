@@ -21,7 +21,7 @@ namespace tsukiinit {
         VkSemaphoreSubmitInfo *waitSemaphoreInfo);
     VkPresentInfoKHR tPresentInfo();
 
-    VkRenderingAttachmentInfo tAttachmentInfo(VkImageView view, VkClearValue *clear, VkImageLayout layout /*= VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL*/);
+    VkRenderingAttachmentInfo tAttachmentInfo(VkImageView view, VkClearValue *clear, VkImageLayout layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
     VkRenderingAttachmentInfo tDepthAttachmentInfo(VkImageView view,
         VkImageLayout layout /*= VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL*/ );
