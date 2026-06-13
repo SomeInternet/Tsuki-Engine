@@ -73,6 +73,13 @@ void TsukiEngine::init() {
 	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 	window = glfwCreateWindow( WIDTH, HEIGHT, "Tsuki Engine", nullptr, nullptr);
 
+    glfwSetWindowUserPointer(window, this); //Give the GLFW window a pointer to this instance of the engine
+
+    glfwSetWindowIconifyCallback(window, [](GLFWwindow *window, int iconified) {
+        auto tsukiEngine = reinterpret_cast<TsukiEngine *>(glfwGetWindowUserPointer(window));
+        tsukiEngine->_render = !iconified;
+        });
+
 	//Initialize Vulkan
 	initVulkan();
 	initSwapChain();
@@ -231,31 +238,34 @@ void TsukiEngine::run() {
 		glfwPollEvents();
 
         //TODO: Make sure events process correctly
-        ImGui_ImplVulkan_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
+        if (_render) {
+            ImGui_ImplVulkan_NewFrame();
+            ImGui_ImplGlfw_NewFrame();
+            ImGui::NewFrame();
 
-        //ImGui::ShowDemoWindow();
+            //ImGui::ShowDemoWindow();
 
-        if (ImGui::Begin("background")) {
+            if (ImGui::Begin("background")) {
 
-            ComputeEffect &selected = backgroundEffects[currBackgroundEffect];
+                ComputeEffect &selected = backgroundEffects[currBackgroundEffect];
 
-            ImGui::Text("Selected effect: ", selected.name);
+                ImGui::Text("Selected effect: ", selected.name);
 
-            ImGui::SliderInt("Effect Index", &currBackgroundEffect, 0, backgroundEffects.size() - 1);
+                ImGui::SliderInt("Effect Index", &currBackgroundEffect, 0, backgroundEffects.size() - 1);
 
-            ImGui::InputFloat4("data1", (float *)&selected.data.data1);
-            ImGui::InputFloat4("data2", (float *)&selected.data.data2);
-            ImGui::InputFloat4("data3", (float *)&selected.data.data3);
-            ImGui::InputFloat4("data4", (float *)&selected.data.data4);
+                ImGui::InputFloat4("data1", (float *)&selected.data.data1);
+                ImGui::InputFloat4("data2", (float *)&selected.data.data2);
+                ImGui::InputFloat4("data3", (float *)&selected.data.data3);
+                ImGui::InputFloat4("data4", (float *)&selected.data.data4);
+            }
+            ImGui::End();
+
+            ImGui::Render();
+
+            draw();
         }
-        ImGui::End();
-
-        ImGui::Render();
-
-		draw();
-	}
+    }
+        
 }
 
 //PUBLIC HELPERS

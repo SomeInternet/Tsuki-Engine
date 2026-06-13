@@ -29,7 +29,7 @@ public:
 
 	bool _isInit{ false };
 	int _frameNum{ 0 };
-	bool stopRendering{ false };
+	bool _render{ true };
 	VkExtent2D _windowExtent{ WIDTH, HEIGHT }; //TODO: Change to match...
 
 	GLFWwindow *window{ nullptr };
