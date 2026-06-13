@@ -28,7 +28,11 @@ public:
 	void disableBlending();
 	void setColorAttachmentFormat(VkFormat format);
 	void setDepthFormat(VkFormat format);
+
+	//DEPTH TESTING
+	//===================================================================================================================
 	void disableDepthTest();
+	void enableDepthTest(bool depthWriteEnable, VkCompareOp op);
 };
 
 //TSUKIUTIL

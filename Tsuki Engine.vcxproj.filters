@@ -60,6 +60,9 @@
     <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-master\imgui_demo.cpp">
       <Filter>ImGUI</Filter>
     </ClCompile>
+    <ClCompile Include="t_loader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="t_engine.h">

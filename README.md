@@ -16,7 +16,7 @@ a) *Setup Vulkan instance, physical device, surface, and logical device (O)*
 b) *Setup Vulkan swapchain (O)*
 b) *Setup synchronization devices, frames in flight (O)*
 b) *Walk through compute shader rendering (-)*
-4) Implement GLTF loading to CUDA
+4) Implement GLTF loading to Vulkan (we'll get a pointer to pass it to CUDA)
 5) Implement multiple object rasterization in Vulkan
 6) Implement CUDA pathtracing
 7) Implement Vulkan interop

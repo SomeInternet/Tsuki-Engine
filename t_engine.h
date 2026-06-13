@@ -1,5 +1,6 @@
 #pragma once
 #include "t_types.h"
+#include "t_loader.h"
 #include "t_descriptors.h"
 
 #define WIDTH 1700
@@ -78,6 +79,10 @@ public:
 	VkPipeline _meshPipeline;
 
 	GPUMeshBuffers rectangle;
+
+	std::vector<std::shared_ptr<Mesh>> testMeshes;
+
+	AllocatedImage _depthImage;
 	//
 
 	//IMGUI
@@ -104,6 +109,10 @@ public:
 	void drawBackground(VkCommandBuffer commandBuffer, uint32_t swapChainImageIndex);
 
 	void immediateSubmit(std::function<void(VkCommandBuffer commandBuffer)> &&function);
+
+	//MESH HELPERS
+	//===================================================================================================================
+	GPUMeshBuffers uploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
 
 private:
 
@@ -136,10 +145,6 @@ private:
 	//TODO: Move this elswhere?
 	AllocatedBuffer createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 	void destroyBuffer(const AllocatedBuffer &buffer);
-
-	//MESH HELPERS
-	//===================================================================================================================
-	GPUMeshBuffers uploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
 
 	//VULKAN SETUP (ADAPTED FROM VULKAN-TUTORIAL)
 	//===================================================================================================================
