@@ -134,3 +134,7 @@ struct GPUDrawPushConstants {
 //Descriptor set layouts are like a class. They tell us how a descriptor set will be laid out. A descriptor set is sort of like
 //an instance of that class. A descriptor is a pointer to GPU data accompanied by metadata. A pipeline layout tells the pipeline
 //what kinds of resources will be available and when
+
+//Blending occurs at the end of the graphics pipeline. It determines how our fragments interact with what is already in the attachment
+//Alpha and color blending are separated into 2 operations. We can blend multiplicatively, additively, etc. through VK_BLEND_OP_XXX
+//We can set the factor w/ VK_BLEND_FACTOR (e.g. VK_BLEND_FACTOR_ZERO, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA)

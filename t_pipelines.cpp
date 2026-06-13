@@ -101,9 +101,31 @@ void PipelineBuilder::disableBlending() { //TODO: Review
 	_colorBlendAttachment.blendEnable = VK_FALSE;
 }
 
+void PipelineBuilder::enableBlendingAdditive() {
+	_colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+	_colorBlendAttachment.blendEnable = VK_TRUE;
+	_colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+	_colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+	_colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+	_colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE; //Src alpha (fragment alpha) overwrites existing alpha
+	_colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+	_colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+}
+
+void PipelineBuilder::enableBlendingAlphaBlend() { //This isn't blending the alpha values, it's color blending by alpha value
+	_colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+	_colorBlendAttachment.blendEnable = VK_TRUE;
+	_colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA; //We are lerping between src and dst colors by the src alpha
+	_colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	_colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+	_colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE; //Src alpha (fragment alpha) overwrites existing alpha
+	_colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+	_colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+}
+
 void PipelineBuilder::setColorAttachmentFormat(VkFormat format) {
 	_colorAttachmentFormat = format;
-	// connect the format to the renderInfo  structure
+	// connect the format to the renderInfo structure
 	_renderInfo.colorAttachmentCount = 1;
 	_renderInfo.pColorAttachmentFormats = &_colorAttachmentFormat;
 }

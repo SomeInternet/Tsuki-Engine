@@ -25,7 +25,11 @@ public:
 	void setCullMode(VkCullModeFlags cullMode, VkFrontFace frontFace); //Determines things like backface culling
 
 	void setMultisamplingNone();
+
 	void disableBlending();
+	void enableBlendingAdditive();
+	void enableBlendingAlphaBlend();
+
 	void setColorAttachmentFormat(VkFormat format);
 	void setDepthFormat(VkFormat format);
 

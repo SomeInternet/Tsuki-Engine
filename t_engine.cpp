@@ -590,7 +590,7 @@ void TsukiEngine::initBackgroundPipelines() { //TODO: Just copy this over to ini
     computeLayout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     computeLayout.pNext = nullptr;
     computeLayout.setLayoutCount = 1;
-    computeLayout.pSetLayouts = &_drawImageDescriptorLayout;
+    computeLayout.pSetLayouts = &_drawImageDescriptorLayout; //Plug in the descriptor set layout, promising certain kinds of resources
 
     VkPushConstantRange pushConstant{};
     pushConstant.offset = 0;
