@@ -70,12 +70,12 @@ void TsukiEngine::init() {
 	//Create a GLFW window
     glfwInit();
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); //GLFW was initially created for OpenGL contexts, so we tell it not to create an OpenGL context.
-	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-	window = glfwCreateWindow( WIDTH, HEIGHT, "Tsuki Engine", nullptr, nullptr);
+	glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+	_window = glfwCreateWindow( WIDTH, HEIGHT, "Tsuki Engine", nullptr, nullptr);
 
-    glfwSetWindowUserPointer(window, this); //Give the GLFW window a pointer to this instance of the engine
+    glfwSetWindowUserPointer(_window, this); //Give the GLFW window a pointer to this instance of the engine
 
-    glfwSetWindowIconifyCallback(window, [](GLFWwindow *window, int iconified) {
+    glfwSetWindowIconifyCallback(_window, [](GLFWwindow *window, int iconified) {
         auto tsukiEngine = reinterpret_cast<TsukiEngine *>(glfwGetWindowUserPointer(window));
         tsukiEngine->_render = !iconified;
         });
@@ -134,7 +134,7 @@ void TsukiEngine::cleanup() {
         }
         vkDestroyInstance(_instance, nullptr);
 
-		glfwDestroyWindow(window);
+		glfwDestroyWindow(_window);
 		glfwTerminate();
 	}
 
@@ -162,13 +162,18 @@ void TsukiEngine::draw() {
     getCurrFrame()._deletionQueue.flush();
 
     //Get image from swapchain
-    uint32_t swapChainImageIndex;
-    VK_CHECK(vkAcquireNextImageKHR(_device, _swapChain, 1000000000, getCurrFrame()._swapChainSemaphore, nullptr, &swapChainImageIndex)); //Signals the swapchain semaphore when complete
+    uint32_t swapChainImageIndex; 
+
+    VkResult result = vkAcquireNextImageKHR(_device, _swapChain, 1000000000, getCurrFrame()._swapChainSemaphore, nullptr, &swapChainImageIndex); //Signals the swapchain semaphore when complete
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) { //Swapchain is out of date due to needing to be resized
+        _resize = true;
+        return;
+    }
 
     VK_CHECK(vkResetFences(_device, 1, &getCurrFrame()._renderFence)); //Reset the fence
 
-    _drawExtent.width = _drawImage.imageExtent.width;
-    _drawExtent.height = _drawImage.imageExtent.height;
+    _drawExtent.width = std::min(_drawImage.imageExtent.width, _swapChainExtent.width) * renderScale;
+    _drawExtent.height = std::min(_drawImage.imageExtent.height, _swapChainExtent.height) * renderScale;
 
     //Begin command buffer
     VkCommandBuffer commandBuffer = getCurrFrame()._mainCommandBuffer;
@@ -228,17 +233,25 @@ void TsukiEngine::draw() {
 
     presentInfo.pImageIndices = &swapChainImageIndex;
 
-    VK_CHECK(vkQueuePresentKHR(_graphicsQueue, &presentInfo));
+    result = vkQueuePresentKHR(_graphicsQueue, &presentInfo);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) { 
+        _resize = true;
+        return;
+    }
     ++_frameNum;
 }
 
 void TsukiEngine::run() {
     //return;
-	while (!glfwWindowShouldClose(window)) {
+	while (!glfwWindowShouldClose(_window)) {
 		glfwPollEvents();
 
         //TODO: Make sure events process correctly
         if (_render) {
+
+            //Recreate the swapchain if needed
+            if (_resize) { resizeSwapChain(); }
+
             ImGui_ImplVulkan_NewFrame();
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
@@ -246,9 +259,9 @@ void TsukiEngine::run() {
             //ImGui::ShowDemoWindow();
 
             if (ImGui::Begin("background")) {
+                ImGui::SliderFloat("Render Scale",&renderScale, 0.3f, 1.f);
 
                 ComputeEffect &selected = backgroundEffects[currBackgroundEffect];
-
                 ImGui::Text("Selected effect: ", selected.name);
 
                 ImGui::SliderInt("Effect Index", &currBackgroundEffect, 0, backgroundEffects.size() - 1);
@@ -552,10 +565,26 @@ void TsukiEngine::createSwapChain(uint32_t width, uint32_t height) {
 }
 
 void TsukiEngine::destroySwapChain() {
-    vkDestroySwapchainKHR(_device, _swapChain, nullptr);
     for (int i = 0; i < _swapChainImageViews.size(); ++i) { //TODO: Optimize?
         vkDestroyImageView(_device, _swapChainImageViews[i], nullptr);
     }
+    _swapChainImageViews.clear();
+
+    vkDestroySwapchainKHR(_device, _swapChain, nullptr);
+}
+
+void TsukiEngine::resizeSwapChain() {
+    vkDeviceWaitIdle(_device);
+    destroySwapChain();
+
+    int width, height;
+    glfwGetFramebufferSize(_window, &width, &height);
+    _windowExtent.width = width;
+    _windowExtent.height = height;
+
+    createSwapChain(_windowExtent.width, _windowExtent.height);
+
+    _resize = false;
 }
 
 void TsukiEngine::initDescriptors() {
@@ -695,7 +724,7 @@ void TsukiEngine::initImgui() { //TODO
 
     //Initialize IMGUI
     ImGui::CreateContext();
-    ImGui_ImplGlfw_InitForVulkan(window, true);
+    ImGui_ImplGlfw_InitForVulkan(_window, true);
 
     ImGui_ImplVulkan_InitInfo initInfo{};
     initInfo.Instance = _instance;
@@ -971,7 +1000,7 @@ void TsukiEngine::setupDebugMessenger() {
 }
 
 void TsukiEngine::createSurface() {
-    VK_CHECK(glfwCreateWindowSurface(_instance, window, nullptr, &_surface));
+    VK_CHECK(glfwCreateWindowSurface(_instance, _window, nullptr, &_surface));
 }
 
 void TsukiEngine::pickPhysicalDevice() {

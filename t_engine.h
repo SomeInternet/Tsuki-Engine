@@ -30,9 +30,10 @@ public:
 	bool _isInit{ false };
 	int _frameNum{ 0 };
 	bool _render{ true };
+	bool _resize{ false }; //Resize boolean flag
 	VkExtent2D _windowExtent{ WIDTH, HEIGHT }; //TODO: Change to match...
 
-	GLFWwindow *window{ nullptr };
+	GLFWwindow *_window{ nullptr };
 
 	FrameData _frames[FRAMES_IN_FLIGHT];
 	//To avoid validation layer warnings
@@ -59,6 +60,7 @@ public:
 	//Chapter 2
 	AllocatedImage _drawImage;
 	VkExtent2D _drawExtent;
+	float renderScale{ 1.f };
 
 	DescriptorAllocator globalDescriptorAllocator;
 
@@ -125,6 +127,7 @@ private:
 
 	void createSwapChain(uint32_t width, uint32_t height);
 	void destroySwapChain();
+	void resizeSwapChain();
 
 	void initDescriptors();
 
