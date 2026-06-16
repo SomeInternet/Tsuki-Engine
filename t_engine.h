@@ -24,6 +24,18 @@ struct ComputeEffect {
 	ComputePushConstants data;
 };
 
+struct FrameData {
+	VkCommandPool _commandPool;
+	VkCommandBuffer _mainCommandBuffer;
+
+	VkSemaphore _swapChainSemaphore; //Have the rendering commands wait on receiving the image from the swapchain
+	VkFence _renderFence; //Have command buffer recording wait on rendering being finished
+
+	DeletionQueue _deletionQueue;
+
+	DynamicDescriptorAllocator _frameDescriptors;
+};
+
 class TsukiEngine {
 public:
 
@@ -87,6 +99,21 @@ public:
 	AllocatedImage _depthImage;
 	//
 
+	//Chapter 4
+	SceneData sceneData;
+	VkDescriptorSetLayout _sceneDataDescriptorLayout;
+
+	AllocatedImage _whiteImage;
+	AllocatedImage _blackImage;
+	AllocatedImage _grayImage;
+	AllocatedImage _errorCheckerboardImage;
+
+	VkSampler _defaultSamplerLinear;
+	VkSampler _defaultSamplerNearest;
+
+	VkDescriptorSetLayout _singleImageDescriptorLayout;
+	//
+
 	//IMGUI
 	VkFence _immFence;
 	VkCommandBuffer _immCommandBuffer;
@@ -143,6 +170,12 @@ private:
 
 	void initMeshPipeline();
 	void initDefaultMeshData();
+	//
+
+	//Chapter 4
+	AllocatedImage createImage(VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmaps = false);
+	AllocatedImage createImage(void *data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmaps = false);
+	void destroyImage(const AllocatedImage &image);
 	//
 
 	//TODO: Move this elswhere?

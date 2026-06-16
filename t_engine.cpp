@@ -160,6 +160,7 @@ void TsukiEngine::draw() {
 
     //Clear frame-specific data
     getCurrFrame()._deletionQueue.flush();
+    getCurrFrame()._frameDescriptors.destroyPools(_device);
 
     //Get image from swapchain
     uint32_t swapChainImageIndex; 
@@ -255,8 +256,6 @@ void TsukiEngine::run() {
             ImGui_ImplVulkan_NewFrame();
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
-
-            //ImGui::ShowDemoWindow();
 
             if (ImGui::Begin("background")) {
                 ImGui::SliderFloat("Render Scale",&renderScale, 0.3f, 1.f);
@@ -618,6 +617,36 @@ void TsukiEngine::initDescriptors() {
         globalDescriptorAllocator.destroyPool(_device);
         vkDestroyDescriptorSetLayout(_device, _drawImageDescriptorLayout, nullptr);
         });
+
+    //Create a descriptor set layout that notes a uniform buffer will be available at the vertex and fragment shader stages
+    {
+        DescriptorLayoutBuilder builder;
+        builder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+        _sceneDataDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+    }
+
+    //Create a descriptor pool for each frame in flight
+    for (int i = 0; i < FRAMES_IN_FLIGHT; ++i) {
+        std::vector<DynamicDescriptorAllocator::PoolSizeRatio> framePoolSizes = {
+            {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3},
+            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3},
+            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3},
+            {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4}
+        };
+
+        _frames[i]._frameDescriptors = DynamicDescriptorAllocator{};
+        _frames[i]._frameDescriptors.init(_device, 1000, framePoolSizes);
+
+        _mainDeletionQueue.push([&, i]() {
+            _frames[i]._frameDescriptors.destroyPools(_device);
+            });
+    }
+
+    {
+        DescriptorLayoutBuilder builder;
+        builder.addBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+        _singleImageDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_FRAGMENT_BIT);
+    }
 }
 
 void TsukiEngine::initPipelines() {
@@ -832,10 +861,38 @@ void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer) {
 
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipeline);
 
+    //Allocate a descriptor set for the texture image from our dynamic descriptor set allocator
+    VkDescriptorSet imageSet = getCurrFrame()._frameDescriptors.allocate(_device, _singleImageDescriptorLayout);
+
+    { //Scope this
+        DescriptorWriter writer;
+        writer.writeImage(0, _errorCheckerboardImage.imageView, _defaultSamplerNearest, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+        writer.updateSet(_device, imageSet);
+    }
+
     vkCmdPushConstants(commandBuffer, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pushConstants);
     vkCmdBindIndexBuffer(commandBuffer, rectangle.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 
-    vkCmdDrawIndexed(commandBuffer, 6, 1, 0, 0, 0);
+    //vkCmdDrawIndexed(commandBuffer, 6, 1, 0, 0, 0);
+
+    AllocatedBuffer sceneDataBuffer = createBuffer(sizeof(SceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+    getCurrFrame()._deletionQueue.push([=, this]() {
+        destroyBuffer(sceneDataBuffer);
+        });
+
+    SceneData *sceneDataData = reinterpret_cast<SceneData *>(sceneDataBuffer.allocation->GetMappedData());
+    *sceneDataData = sceneData;
+
+    //Create a descriptor set that binds the data and update it
+    VkDescriptorSet globalDescriptor = getCurrFrame()._frameDescriptors.allocate(_device, _sceneDataDescriptorLayout);
+    {
+        DescriptorWriter writer;
+        writer.writeBuffer(0, sceneDataBuffer.buffer, sizeof(SceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+        writer.updateSet(_device, globalDescriptor);
+    }
+
+    //Bind the descriptor set containing our texture
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipelineLayout, 0, 1, &imageSet, 0, nullptr);
 
     pushConstants.vertexBuffer = testMeshes[2]->meshBuffers.vertexBufferAddress;
     glm::mat4 view = glm::translate(glm::vec3(0, 0, -5));
@@ -867,12 +924,14 @@ void TsukiEngine::initMeshPipeline() {
     //Include push constants in the pipeline layout
     pipelineLayoutInfo.pushConstantRangeCount = 1;
     pipelineLayoutInfo.pPushConstantRanges = &bufferRange;
+    pipelineLayoutInfo.setLayoutCount = 1;
+    pipelineLayoutInfo.pSetLayouts = &_singleImageDescriptorLayout;
 
     VK_CHECK(vkCreatePipelineLayout(_device, &pipelineLayoutInfo, nullptr, &_meshPipelineLayout));
 
     PipelineBuilder pipelineBuilder;
     pipelineBuilder._pipelineLayout = _meshPipelineLayout;
-    pipelineBuilder.setShaders(meshShader, meshShader, "vertMain", "fragMain");
+    pipelineBuilder.setShaders(meshShader, meshShader, "vertMain", "fragTextureMain");
     pipelineBuilder.setInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST); //Draw meshs
     pipelineBuilder.setPolygonMode(VK_POLYGON_MODE_FILL);
     pipelineBuilder.setCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
@@ -924,9 +983,118 @@ void TsukiEngine::initDefaultMeshData() {
         destroyBuffer(rectangle.vertexBuffer);
         });
 
+    uint32_t white = glm::packUnorm4x8(glm::vec4(1));
+    _whiteImage = createImage(reinterpret_cast<void *>(&white), VkExtent3D{ 1, 1, 1 }, VK_FORMAT_R8G8B8A8_UNORM,
+        VK_IMAGE_USAGE_SAMPLED_BIT);
+
+    uint32_t gray = glm::packUnorm4x8(glm::vec4(glm::vec3(.67f), 1));
+    _grayImage = createImage(reinterpret_cast<void *>(&gray), VkExtent3D{ 1, 1, 1 }, VK_FORMAT_R8G8B8A8_UNORM,
+        VK_IMAGE_USAGE_SAMPLED_BIT);
+
+    uint32_t black = glm::packUnorm4x8(glm::vec4(0));
+    _blackImage = createImage(reinterpret_cast<void *>(&black), VkExtent3D{ 1, 1, 1 }, VK_FORMAT_R8G8B8A8_UNORM,
+        VK_IMAGE_USAGE_SAMPLED_BIT);
+
+    uint32_t magenta = glm::packUnorm4x8(glm::vec4(1, 0, 1, 1));
+    std::array<uint32_t, 16 * 16> pixels;
+    for (int y = 0; y < 16; ++y) {
+        for (int x = 0; x < 16; ++x) {
+            pixels[y * 16 + x] = ((x % 2) ^ (y % 2)) ? magenta : black; //^ is bitwise XOR
+        }
+    }
+    _errorCheckerboardImage = createImage(pixels.data(), VkExtent3D{ 16, 16, 1 }, VK_FORMAT_R8G8B8A8_UNORM,
+        VK_IMAGE_USAGE_SAMPLED_BIT);
+
+    VkSamplerCreateInfo sampler{};
+
+    sampler.magFilter = VK_FILTER_NEAREST;
+    sampler.minFilter = VK_FILTER_NEAREST;
+
+    vkCreateSampler(_device, &sampler, nullptr, &_defaultSamplerNearest);
+
+    sampler.magFilter = VK_FILTER_LINEAR;
+    sampler.minFilter = VK_FILTER_LINEAR;
+    vkCreateSampler(_device, &sampler, nullptr, &_defaultSamplerLinear);
+
+    _mainDeletionQueue.push([&]() {
+        vkDestroySampler(_device, _defaultSamplerNearest, nullptr);
+        vkDestroySampler(_device, _defaultSamplerLinear, nullptr);
+
+        destroyImage(_whiteImage);
+        destroyImage(_grayImage);
+        destroyImage(_blackImage);
+        destroyImage(_errorCheckerboardImage);
+        });
+
     testMeshes = tsukiutil::loadGltf(this, "./Models/basicmesh.glb").value();
 }
-//End chapter 3
+//End Chapter 3
+
+//Chapter 4
+AllocatedImage TsukiEngine::createImage(VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmaps /*= false*/ ) {
+    AllocatedImage newImage;
+    newImage.imageFormat = format;
+    newImage.imageExtent = extent;
+
+    VkImageCreateInfo imageInfo = tsukiinit::tImageCreateInfo(format, usage, extent);
+    if (mipmaps) {
+        imageInfo.mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1;
+    }
+
+    VmaAllocationCreateInfo allocInfo{};
+    allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+    allocInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+
+    VK_CHECK(vmaCreateImage(_allocator, &imageInfo, &allocInfo, &newImage.image, &newImage.allocation, nullptr));
+
+    VkImageAspectFlags aspectFlag = (format == VK_FORMAT_D32_SFLOAT) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+
+    VkImageViewCreateInfo imageViewInfo = tsukiinit::tImageViewCreateInfo(format, newImage.image, aspectFlag);
+    imageViewInfo.subresourceRange.levelCount = imageInfo.mipLevels;
+
+    VK_CHECK(vkCreateImageView(_device, &imageViewInfo, nullptr, &newImage.imageView));
+    return newImage;
+}
+
+AllocatedImage TsukiEngine::createImage(void *data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmaps /*= false*/ ) {
+    size_t dataSize = extent.width * extent.height * extent.depth * 4; //We're assuming 8-bit RGBA channels
+
+    AllocatedBuffer stagingBuffer = createBuffer(dataSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+    memcpy(stagingBuffer.info.pMappedData, data, dataSize);
+
+
+    AllocatedImage newImage = createImage(extent, format, usage | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, mipmaps);
+    immediateSubmit([&](VkCommandBuffer commandBuffer) {
+        tsukiutil::transitionImageLayout(commandBuffer, newImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+        VkBufferImageCopy copyRegion{};
+        copyRegion.bufferOffset = 0;
+        copyRegion.bufferRowLength = 0;
+        copyRegion.bufferImageHeight = 0;
+
+        copyRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        copyRegion.imageSubresource.mipLevel = 0;
+        copyRegion.imageSubresource.baseArrayLayer = 0;
+        copyRegion.imageSubresource.layerCount = 1;
+        copyRegion.imageExtent = extent;
+
+        //Copy the buffer to the image
+        vkCmdCopyBufferToImage(commandBuffer, stagingBuffer.buffer, newImage.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+
+        //Transition layout for use in the fragment shader
+        tsukiutil::transitionImageLayout(commandBuffer, newImage.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        });
+
+    destroyBuffer(stagingBuffer);
+
+    return newImage;
+}
+
+void TsukiEngine::destroyImage(const AllocatedImage &image) {
+    vkDestroyImageView(_device, image.imageView, nullptr);
+    vmaDestroyImage(_allocator, image.image, image.allocation);
+}
+//End Chapter 4
 
 AllocatedBuffer TsukiEngine::createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage) {
     VkBufferCreateInfo bufferInfo{};

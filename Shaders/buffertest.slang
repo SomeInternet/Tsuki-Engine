@@ -20,6 +20,9 @@ struct PushConstants {
 [vk::push_constant]
 PushConstants vsInput;
 
+[vk_binding(0, 0)] // Sampler2D's combine the texture and the filtering. Modern API's allow these to be separated, so I should look into that...
+Sampler2D texture;
+
 [shader("vertex")]
 VSOutput vertMain(uint index: SV_VertexID) { // SV_VertexID denotes the index of the invocation of the vertex shader
     Vertex v = vsInput.vertices[index];
@@ -35,4 +38,9 @@ VSOutput vertMain(uint index: SV_VertexID) { // SV_VertexID denotes the index of
 [shader("fragment")]
 float4 fragMain(VSOutput fsInput) : SV_Target {
     return float4(fsInput.color, 1);
+}
+
+[shader("fragment")]
+float4 fragTextureMain(VSOutput fsInput) : SV_Target {
+    return texture.Sample(fsInput.uv);
 }

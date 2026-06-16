@@ -152,6 +152,7 @@ void DynamicDescriptorAllocator::destroyPools(VkDevice device) {
 VkDescriptorSet DynamicDescriptorAllocator::allocate(VkDevice device, VkDescriptorSetLayout layout, void *pNext) {
 	VkDescriptorPool pool = getPool(device);
 
+	//Use the layout and number of sets to allocate some number of descriptor sets (1, in our case)
 	VkDescriptorSetAllocateInfo info{};
 	info.pNext = pNext;
 	info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -188,6 +189,9 @@ void DescriptorWriter::writeImage(int binding, VkImageView imageView, VkSampler 
 	write.dstBinding = binding;
 	write.descriptorType = type;
 	write.pImageInfo = &info;
+	write.descriptorCount = 1;
+
+	writes.push_back(write);
 }
 
 void DescriptorWriter::writeBuffer(int binding, VkBuffer buffer, size_t size, size_t offset, VkDescriptorType type) {
@@ -203,6 +207,7 @@ void DescriptorWriter::writeBuffer(int binding, VkBuffer buffer, size_t size, si
 	write.dstBinding = binding;
 	write.descriptorType = type;
 	write.pBufferInfo = &info;
+	write.descriptorCount = 1;
 
 	writes.push_back(write);
 }

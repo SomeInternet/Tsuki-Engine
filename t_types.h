@@ -71,16 +71,6 @@ struct DeletionQueue { //TODO: Optimize? (https://vkguide.dev/docs/new_chapter_2
 	}
 };
 
-struct FrameData {
-	VkCommandPool _commandPool;
-	VkCommandBuffer _mainCommandBuffer;
-
-	VkSemaphore _swapChainSemaphore; //Have the rendering commands wait on receiving the image from the swapchain
-	VkFence _renderFence; //Have command buffer recording wait on rendering being finished
-
-	DeletionQueue _deletionQueue;
-};
-
 struct AllocatedImage {
 	VkImage image;
 	VkImageView imageView;
@@ -116,6 +106,16 @@ struct GPUDrawPushConstants {
 	VkDeviceAddress vertexBuffer;
 };
 
+struct SceneData {
+	glm::mat4 view;
+	glm::mat4 proj;
+	glm::mat4 viewproj;
+
+	glm::vec4 ambient;
+	glm::vec4 lightDir;
+	glm::vec4 lightColor;
+};
+
 //REVIEW:
 //Command pools are thread-isolated pieces of memory corresponding to a queue family.
 //We allocated command buffers from them, which can be submitted to a queue in the queue family
@@ -138,3 +138,6 @@ struct GPUDrawPushConstants {
 //Blending occurs at the end of the graphics pipeline. It determines how our fragments interact with what is already in the attachment
 //Alpha and color blending are separated into 2 operations. We can blend multiplicatively, additively, etc. through VK_BLEND_OP_XXX
 //We can set the factor w/ VK_BLEND_FACTOR (e.g. VK_BLEND_FACTOR_ZERO, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA)
+
+//When a descriptor pool is created, it is given a maximum budget of sets and different kinds of descriptors. Sets can be allocated from the pool as
+//the programmer sees fit until the budget can't accommodate it anymore
