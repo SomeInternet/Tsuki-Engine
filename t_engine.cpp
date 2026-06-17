@@ -57,12 +57,112 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     return VK_FALSE;
 }
 
+//MATERIALS
+//===================================================================================================================
+void GLTFMetallicRoughness::buildPipelines(TsukiEngine *engine) {
+    VkShaderModule meshShader;
+    if (!tsukiutil::loadShaderModule("./Shaders/gradient.spv", engine->_device, &meshShader)) {
+        std::cerr << "Error building mesh shader" << std::endl;
+    }
+
+    VkPushConstantRange matrixRange{};
+    matrixRange.offset = 0;
+    matrixRange.size = sizeof(GPUDrawPushConstants);
+    matrixRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    //Create our descriptor set layout
+    DescriptorLayoutBuilder layoutBuilder;
+    layoutBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    layoutBuilder.addBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    layoutBuilder.addBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+
+    materialLayout = layoutBuilder.build(engine->_device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+
+    VkDescriptorSetLayout layouts[] = { engine->_sceneDataDescriptorLayout, materialLayout };
+
+    //Create our pipeline layout
+    VkPipelineLayoutCreateInfo meshPipelineLayoutInfo = tsukiinit::tPipelineLayoutCreateInfo();
+    meshPipelineLayoutInfo.setLayoutCount = 2;
+    meshPipelineLayoutInfo.pSetLayouts = layouts;
+    meshPipelineLayoutInfo.pushConstantRangeCount = 1;
+    meshPipelineLayoutInfo.pPushConstantRanges = &matrixRange;
+    
+    VkPipelineLayout newPipelineLayout;
+    VK_CHECK(vkCreatePipelineLayout(engine->_device, &meshPipelineLayoutInfo, nullptr, &newPipelineLayout));
+
+    opaquePipeline.layout = newPipelineLayout;
+    transparentPipeline.layout = newPipelineLayout;
+
+    PipelineBuilder pipelineBuilder;
+    pipelineBuilder.setShaders(meshShader, meshShader, "vertMain", "fragMain");
+    pipelineBuilder.setInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+    pipelineBuilder.setPolygonMode(VK_POLYGON_MODE_FILL);
+    pipelineBuilder.setCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+    pipelineBuilder.setMultisamplingNone();
+    pipelineBuilder.disableBlending();
+    pipelineBuilder.enableDepthTest(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
+
+    pipelineBuilder.setColorAttachmentFormat(engine->_drawImage.imageFormat);
+    pipelineBuilder.setDepthFormat(engine->_depthImage.imageFormat);
+
+    opaquePipeline.pipeline = pipelineBuilder.build(engine->_device);
+
+    //Enable blending for transparent objects
+    pipelineBuilder.enableBlendingAdditive();
+    pipelineBuilder.enableDepthTest(false, VK_COMPARE_OP_GREATER_OR_EQUAL);
+    transparentPipeline.pipeline = pipelineBuilder.build(engine->_device);
+}
+void GLTFMetallicRoughness::clearResources(VkDevice device) {
+
+}
+
+TsukiMaterial GLTFMetallicRoughness::writeMaterial(VkDevice device, TsukiMaterialPass pass, const GLTFMetallicRoughness::MaterialResources &resources,
+    DynamicDescriptorAllocator &descriptorAllocator) {
+    TsukiMaterial materialData;
+
+    materialData.passType = pass;
+    materialData.pipeline = (pass == TsukiMaterialPass::TSUKI_MATERIAL_TRANSPARENT) ? &transparentPipeline : &opaquePipeline;
+    materialData.descriptorSet = descriptorAllocator.allocate(device, materialLayout);
+
+    writer.clear();
+    writer.writeBuffer(0, resources.dataBuffer, sizeof(MaterialConstants), resources.dataBufferOffset, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    writer.writeImage(1, resources.colorImage.imageView, resources.colorSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    writer.writeImage(2, resources.metallicRoughnessImage.imageView, resources.metallicRoughnessSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+
+    writer.updateSet(device, materialData.descriptorSet);
+
+    return materialData;
+}
+
+//SCENEGRAPH
+//===================================================================================================================
+void TMeshNode::Draw(const glm::mat4 &matrix, TsukiDrawContext &context) {
+    glm::mat4 nodeMatrix = matrix * worldTransform;
+
+    //Add the submeshes to the draw context to be drawn
+    for (auto &subMesh : mesh->subMeshes) {
+        TsukiRenderObject def;
+        def.size = subMesh.size;
+        def.offset = subMesh.offset;
+
+        def.indexBuffer = mesh->meshBuffers.indexBuffer.buffer;
+        def.material = &subMesh.material->data;
+        def.transform = nodeMatrix;
+        def.vertexBufferAddress = mesh->meshBuffers.vertexBufferAddress;
+
+        context.opaqueSurfaces.push_back(def);
+    }
+
+    //Recurse to the children
+    TNode::Draw(matrix, context);
+}
+
+//MAIN FUNCTIONS
+//===================================================================================================================
 TsukiEngine *loadedEngine = nullptr;
 
 TsukiEngine &TsukiEngine::Get() { return *loadedEngine; }
 
-//MAIN FUNCTIONS
-//===================================================================================================================
 void TsukiEngine::init() {
 	assert(loadedEngine == nullptr);
 	loadedEngine = this;
@@ -1027,6 +1127,28 @@ void TsukiEngine::initDefaultMeshData() {
         });
 
     testMeshes = tsukiutil::loadGltf(this, "./Models/basicmesh.glb").value();
+
+    GLTFMetallicRoughness::MaterialResources materialResources;
+    materialResources.colorImage = _whiteImage;
+    materialResources.colorSampler = _defaultSamplerLinear;
+    materialResources.metallicRoughnessImage = _whiteImage;
+    materialResources.metallicRoughnessSampler = _defaultSamplerLinear;
+
+    AllocatedBuffer materialConstants = createBuffer(sizeof(GLTFMetallicRoughness::MaterialConstants), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+
+    //Set the material constants data in the GPU-visible memory
+    GLTFMetallicRoughness::MaterialConstants *sceneData = reinterpret_cast<GLTFMetallicRoughness::MaterialConstants *>(materialConstants.allocation->GetMappedData());
+    sceneData->colorFac = glm::vec4(1);
+    sceneData->metallicRoughnessFac = glm::vec4(1, .5, 0, 0);
+
+    _mainDeletionQueue.push([=, this]() {
+        destroyBuffer(materialConstants);
+        });
+
+    materialResources.dataBuffer = materialConstants.buffer;
+    materialResources.dataBufferOffset = 0;
+
+    defaultData = metallicRoughnessMaterial.writeMaterial(_device, TsukiMaterialPass::TSUKI_MATERIAL_OPAQUE, materialResources, globalDescriptorAllocator);
 }
 //End Chapter 3
 

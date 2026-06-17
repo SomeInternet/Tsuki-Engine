@@ -36,6 +36,65 @@ struct FrameData {
 	DynamicDescriptorAllocator _frameDescriptors;
 };
 
+//MATERIALS
+//===================================================================================================================
+struct GLTFMetallicRoughness {
+	TsukiMaterialPipeline opaquePipeline;
+	TsukiMaterialPipeline transparentPipeline;
+
+	VkDescriptorSetLayout materialLayout;
+
+	//To be written into a uniform buffer later
+	struct MaterialConstants { //TODO: Improve later
+		glm::vec4 colorFac; //Like the BRDF
+		glm::vec4 metallicRoughnessFac; //PBR Parameters
+		glm::vec4 padding[14]; //Padding to meet the 256 bytes
+	};
+
+	//Handles to the resources of the material (e.g. textures, other data...)
+	struct MaterialResources { //TODO
+		AllocatedImage colorImage;
+		VkSampler colorSampler;
+
+		AllocatedImage metallicRoughnessImage;
+		VkSampler metallicRoughnessSampler;
+
+		VkBuffer dataBuffer;
+		uint32_t dataBufferOffset;
+	};
+
+	DescriptorWriter writer;
+
+	void buildPipelines(TsukiEngine *engine);
+	void clearResources(VkDevice device);
+
+	TsukiMaterial writeMaterial(VkDevice device, TsukiMaterialPass pass, const MaterialResources &resources,
+		DynamicDescriptorAllocator &descriptorAllocator);
+};
+
+//SCENEGRAPH
+//===================================================================================================================
+struct TMeshNode : public TNode {
+	std::shared_ptr<Mesh> mesh;
+
+	virtual void Draw(const glm::mat4 &matrix, TsukiDrawContext &context) override;
+};
+
+struct TsukiRenderObject {
+	uint32_t size;
+	uint32_t offset;
+	VkBuffer indexBuffer;
+
+	TsukiMaterial *material;
+
+	glm::mat4 transform;
+	VkDeviceAddress vertexBufferAddress;
+};
+
+struct TsukiDrawContext {
+	std::vector<TsukiRenderObject> opaqueSurfaces;
+};
+
 class TsukiEngine {
 public:
 
@@ -74,7 +133,7 @@ public:
 	VkExtent2D _drawExtent;
 	float renderScale{ 1.f };
 
-	DescriptorAllocator globalDescriptorAllocator;
+	DynamicDescriptorAllocator globalDescriptorAllocator;
 
 	VkDescriptorSet _drawImageDescriptors;
 	VkDescriptorSetLayout _drawImageDescriptorLayout;
@@ -112,6 +171,12 @@ public:
 	VkSampler _defaultSamplerNearest;
 
 	VkDescriptorSetLayout _singleImageDescriptorLayout;
+
+	TsukiMaterial defaultData;
+	GLTFMetallicRoughness metallicRoughnessMaterial;
+
+	TsukiDrawContext _mainDrawContext;
+	std::unordered_map<std::string, std::shared_ptr<TNode>> loadedNodes;
 	//
 
 	//IMGUI
@@ -176,6 +241,7 @@ private:
 	AllocatedImage createImage(VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmaps = false);
 	AllocatedImage createImage(void *data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmaps = false);
 	void destroyImage(const AllocatedImage &image);
+	void updateScene();
 	//
 
 	//TODO: Move this elswhere?

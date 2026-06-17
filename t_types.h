@@ -116,6 +116,53 @@ struct SceneData {
 	glm::vec4 lightColor;
 };
 
+//MATERIALS
+//===================================================================================================================
+enum class TsukiMaterialPass : uint8_t {
+	TSUKI_MATERIAL_OPAQUE, TSUKI_MATERIAL_TRANSPARENT, TSUKI_MATERIAL_OTHER
+};
+
+struct TsukiMaterialPipeline {
+	VkPipeline pipeline;
+	VkPipelineLayout layout;
+};
+
+struct TsukiMaterial {
+	TsukiMaterialPipeline *pipeline;
+	TsukiMaterialPass passType;
+
+	VkDescriptorSet descriptorSet;
+};
+
+//OBJECTS AND RENDERABLES
+//===================================================================================================================
+struct TsukiDrawContext;
+
+class TRenderable {
+	virtual void Draw(const glm::mat4 &matrix, TsukiDrawContext &context) = 0;
+};
+
+struct TNode : public TRenderable {
+	std::weak_ptr<TNode> parent;
+	std::vector<std::shared_ptr<TNode>> children;
+
+	glm::mat4 localTransform;
+	glm::mat4 worldTransform;
+
+	void updateTransform(const glm::mat4 &parentWorldTransform) {
+		worldTransform = parentWorldTransform * localTransform;
+		for (auto child : children) {
+			child->updateTransform(worldTransform);
+		}
+	}
+
+	virtual void Draw(const glm::mat4 &matrix, TsukiDrawContext &context) {
+		for (auto &child : children) {
+			child->Draw(matrix, context);
+		}
+	}
+};
+
 //REVIEW:
 //Command pools are thread-isolated pieces of memory corresponding to a queue family.
 //We allocated command buffers from them, which can be submitted to a queue in the queue family

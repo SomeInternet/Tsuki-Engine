@@ -4,9 +4,15 @@
 #include <unordered_map>
 #include <filesystem>
 
+struct GLTFMaterial {
+	TsukiMaterial data;
+};
+
 struct SubMesh {
 	uint32_t offset;
 	uint32_t size;
+
+	std::shared_ptr<GLTFMaterial> material;
 };
 
 struct Mesh {
