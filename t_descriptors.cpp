@@ -74,6 +74,8 @@ VkDescriptorSet DescriptorAllocator::allocate(VkDevice device, VkDescriptorSetLa
 
 //DYNAMICDESCRIPTORALLOCATOR
 //===================================================================================================================
+//The dynamic descriptor allocator makes room for descriptor set allocations by dynamically allocating descriptor pools
+//of increasing size, then allocating descriptors from them while they're not full, rinse and repeat
 VkDescriptorPool DynamicDescriptorAllocator::getPool(VkDevice device) {
 	VkDescriptorPool newPool;
 	if (readyPools.size()) { //Still ready pools--some pool might still not be full

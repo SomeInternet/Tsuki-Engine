@@ -2,6 +2,8 @@
 #include "t_types.h"
 #include "t_loader.h"
 #include "t_descriptors.h"
+#include "t_input.h"
+#include "t_camera.h"
 
 #define WIDTH 1700
 #define HEIGHT 900
@@ -77,7 +79,7 @@ struct GLTFMetallicRoughness {
 struct TMeshNode : public TNode {
 	std::shared_ptr<Mesh> mesh;
 
-	virtual void Draw(const glm::mat4 &matrix, TsukiDrawContext &context) override;
+	virtual void queueDraw(const glm::mat4 &matrix, TsukiDrawContext &context) override;
 };
 
 struct TsukiRenderObject {
@@ -128,6 +130,9 @@ public:
 	VkQueue _graphicsQueue;
 	uint32_t _graphicsQueueFamily;
 
+	TsukiInput input;
+	TsukiCamera camera;
+
 	//Chapter 2
 	AllocatedImage _drawImage;
 	VkExtent2D _drawExtent;
@@ -167,8 +172,8 @@ public:
 	AllocatedImage _grayImage;
 	AllocatedImage _errorCheckerboardImage;
 
-	VkSampler _defaultSamplerLinear;
-	VkSampler _defaultSamplerNearest;
+	VkSampler _defaultSamplerLinear; //Sampling with linear blending
+	VkSampler _defaultSamplerNearest; //Sampling with nearest blending (good for low-res textures you don't want to end up blurry)
 
 	VkDescriptorSetLayout _singleImageDescriptorLayout;
 

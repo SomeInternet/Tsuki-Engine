@@ -34,16 +34,17 @@ struct VSOutput {
 };
 
 //Slang will attempt to pack loose global structures together
-[vk_binding(0, 0)]
+//vk::binding(binding, set)
+[vk::binding(0, 0)]
 ConstantBuffer<SceneData> sceneData;
 
-[vk_binding(1, 0)]
+[vk::binding(0, 1)]
 ConstantBuffer<GLTFMaterialData> gltfMaterialData;
 
-[vk_binding(1, 1)]
+[vk::binding(1, 1)]
 Sampler2D colorTexture;
 
-[vk_binding(1, 2)]
+[vk::binding(2, 1)]
 Sampler2D metallicRoughnessTexture;
 
 [vk::push_constant]

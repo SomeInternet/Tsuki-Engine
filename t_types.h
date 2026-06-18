@@ -39,6 +39,9 @@
 		}																		\
 	} while (0)
 
+#define PI 3.14159265358979f
+#define EPSILON .0001f
+
 struct QueueFamilyIndices {
 	std::optional<uint32_t> graphicsFamily;
 	std::optional<uint32_t> presentFamily;
@@ -106,11 +109,14 @@ struct GPUDrawPushConstants {
 	VkDeviceAddress vertexBuffer;
 };
 
+//
 struct SceneData {
 	glm::mat4 view;
 	glm::mat4 proj;
 	glm::mat4 viewproj;
 
+	//This information is unnecessary for a pathtracer. The viewport light direction would probably just be the camera look direction
+	//TODO: Remove this and change the struct 
 	glm::vec4 ambient;
 	glm::vec4 lightDir;
 	glm::vec4 lightColor;
@@ -122,11 +128,14 @@ enum class TsukiMaterialPass : uint8_t {
 	TSUKI_MATERIAL_OPAQUE, TSUKI_MATERIAL_TRANSPARENT, TSUKI_MATERIAL_OTHER
 };
 
+//Contains handles for the pipeline objects of a material
 struct TsukiMaterialPipeline {
 	VkPipeline pipeline;
 	VkPipelineLayout layout;
 };
 
+//Contains pretty much everything we need from a material, including the descriptor set corresponding to it,
+//its type (opaque or transparent), and the pipeline handles
 struct TsukiMaterial {
 	TsukiMaterialPipeline *pipeline;
 	TsukiMaterialPass passType;
@@ -136,15 +145,17 @@ struct TsukiMaterial {
 
 //OBJECTS AND RENDERABLES
 //===================================================================================================================
-struct TsukiDrawContext;
+struct TsukiDrawContext; //Forward declaration
 
 class TRenderable {
-	virtual void Draw(const glm::mat4 &matrix, TsukiDrawContext &context) = 0;
+	virtual void queueDraw(const glm::mat4 &matrix, TsukiDrawContext &context) = 0;
 };
 
 struct TNode : public TRenderable {
-	std::weak_ptr<TNode> parent;
-	std::vector<std::shared_ptr<TNode>> children;
+	std::weak_ptr<TNode> parent; //A weak pointer is a smart pointer that doesn't claim ownership over the resource pointed to
+	//(i.e. it doesn't extend its lifespan)
+
+	std::vector<std::shared_ptr<TNode>> children; //Child nodes in the scene graph. Drawn recursively when the parent is drawn
 
 	glm::mat4 localTransform;
 	glm::mat4 worldTransform;
@@ -156,9 +167,9 @@ struct TNode : public TRenderable {
 		}
 	}
 
-	virtual void Draw(const glm::mat4 &matrix, TsukiDrawContext &context) {
+	virtual void queueDraw(const glm::mat4 &matrix, TsukiDrawContext &context) {
 		for (auto &child : children) {
-			child->Draw(matrix, context);
+			child->queueDraw(matrix, context);
 		}
 	}
 };
@@ -188,3 +199,5 @@ struct TNode : public TRenderable {
 
 //When a descriptor pool is created, it is given a maximum budget of sets and different kinds of descriptors. Sets can be allocated from the pool as
 //the programmer sees fit until the budget can't accommodate it anymore
+
+//std::vectors can be implicitly converted to std::spans

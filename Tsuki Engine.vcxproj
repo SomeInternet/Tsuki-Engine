@@ -133,10 +133,12 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="t_camera.h" />
     <ClInclude Include="t_descriptors.h" />
     <ClInclude Include="t_engine.h" />
     <ClInclude Include="t_images.h" />
     <ClInclude Include="t_initializers.h" />
+    <ClInclude Include="t_input.h" />
     <ClInclude Include="t_loader.h" />
     <ClInclude Include="t_pipelines.h" />
     <ClInclude Include="t_types.h" />
@@ -150,6 +152,7 @@
     <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-master\imgui_tables.cpp" />
     <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-master\imgui_widgets.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="t_camera.cpp" />
     <ClCompile Include="t_descriptors.cpp" />
     <ClCompile Include="t_engine.cpp" />
     <ClCompile Include="t_images.cpp" />
@@ -163,6 +166,7 @@
     <None Include="Shaders\colorblend.slang" />
     <None Include="Shaders\compile.bat" />
     <None Include="Shaders\gradient.slang" />
+    <None Include="Shaders\meshshader.slang" />
     <None Include="Shaders\triangle.slang" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

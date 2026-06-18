@@ -61,7 +61,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 //===================================================================================================================
 void GLTFMetallicRoughness::buildPipelines(TsukiEngine *engine) {
     VkShaderModule meshShader;
-    if (!tsukiutil::loadShaderModule("./Shaders/gradient.spv", engine->_device, &meshShader)) {
+    if (!tsukiutil::loadShaderModule("./Shaders/meshshader.spv", engine->_device, &meshShader)) {
         std::cerr << "Error building mesh shader" << std::endl;
     }
 
@@ -94,13 +94,14 @@ void GLTFMetallicRoughness::buildPipelines(TsukiEngine *engine) {
     transparentPipeline.layout = newPipelineLayout;
 
     PipelineBuilder pipelineBuilder;
+    pipelineBuilder._pipelineLayout = newPipelineLayout;
     pipelineBuilder.setShaders(meshShader, meshShader, "vertMain", "fragMain");
     pipelineBuilder.setInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
     pipelineBuilder.setPolygonMode(VK_POLYGON_MODE_FILL);
     pipelineBuilder.setCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
     pipelineBuilder.setMultisamplingNone();
     pipelineBuilder.disableBlending();
-    pipelineBuilder.enableDepthTest(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
+    pipelineBuilder.enableDepthTest(true, VK_COMPARE_OP_LESS_OR_EQUAL);
 
     pipelineBuilder.setColorAttachmentFormat(engine->_drawImage.imageFormat);
     pipelineBuilder.setDepthFormat(engine->_depthImage.imageFormat);
@@ -109,11 +110,18 @@ void GLTFMetallicRoughness::buildPipelines(TsukiEngine *engine) {
 
     //Enable blending for transparent objects
     pipelineBuilder.enableBlendingAdditive();
-    pipelineBuilder.enableDepthTest(false, VK_COMPARE_OP_GREATER_OR_EQUAL);
+    pipelineBuilder.enableDepthTest(false, VK_COMPARE_OP_LESS_OR_EQUAL);
     transparentPipeline.pipeline = pipelineBuilder.build(engine->_device);
-}
-void GLTFMetallicRoughness::clearResources(VkDevice device) {
 
+    vkDestroyShaderModule(engine->_device, meshShader, nullptr);
+}
+void GLTFMetallicRoughness::clearResources(VkDevice device) { //TODO
+    vkDestroyDescriptorSetLayout(device, materialLayout, nullptr);
+    
+    vkDestroyPipelineLayout(device, opaquePipeline.layout, nullptr);
+
+    vkDestroyPipeline(device, opaquePipeline.pipeline, nullptr);
+    vkDestroyPipeline(device, transparentPipeline.pipeline, nullptr);
 }
 
 TsukiMaterial GLTFMetallicRoughness::writeMaterial(VkDevice device, TsukiMaterialPass pass, const GLTFMetallicRoughness::MaterialResources &resources,
@@ -136,7 +144,7 @@ TsukiMaterial GLTFMetallicRoughness::writeMaterial(VkDevice device, TsukiMateria
 
 //SCENEGRAPH
 //===================================================================================================================
-void TMeshNode::Draw(const glm::mat4 &matrix, TsukiDrawContext &context) {
+void TMeshNode::queueDraw(const glm::mat4 &matrix, TsukiDrawContext &context) {
     glm::mat4 nodeMatrix = matrix * worldTransform;
 
     //Add the submeshes to the draw context to be drawn
@@ -154,7 +162,7 @@ void TMeshNode::Draw(const glm::mat4 &matrix, TsukiDrawContext &context) {
     }
 
     //Recurse to the children
-    TNode::Draw(matrix, context);
+    TNode::queueDraw(matrix, context);
 }
 
 //MAIN FUNCTIONS
@@ -179,6 +187,10 @@ void TsukiEngine::init() {
         auto tsukiEngine = reinterpret_cast<TsukiEngine *>(glfwGetWindowUserPointer(window));
         tsukiEngine->_render = !iconified;
         });
+    
+    glfwSetMouseButtonCallback(_window, TsukiCamera::mouseButtonCallback);
+    glfwSetCursorPosCallback(_window, TsukiCamera::cursorPosCallback);
+    glfwSetScrollCallback(_window, TsukiCamera::scrollCallback);
 
 	//Initialize Vulkan
 	initVulkan();
@@ -219,6 +231,9 @@ void TsukiEngine::cleanup() {
             destroyBuffer(mesh->meshBuffers.vertexBuffer);
         }
 
+        metallicRoughnessMaterial.clearResources(_device);
+
+
         _mainDeletionQueue.flush();
 
         for (int i = 0; i < _swapChainImages.size(); ++i) {
@@ -256,11 +271,14 @@ void TsukiEngine::draw() {
     //Transition the swapchain image for presentation
     //Present it
 
+    updateScene();
+
     VK_CHECK(vkWaitForFences(_device, 1, &getCurrFrame()._renderFence, true, 1000000000)); //Wait for 1 fence (the fence of the current frame) for up to 1 second
 
     //Clear frame-specific data
+    //Clearing descriptor pools is very fast
     getCurrFrame()._deletionQueue.flush();
-    getCurrFrame()._frameDescriptors.destroyPools(_device);
+    getCurrFrame()._frameDescriptors.clearPools(_device);
 
     //Get image from swapchain
     uint32_t swapChainImageIndex; 
@@ -529,6 +547,16 @@ void TsukiEngine::initSwapChain() { //NOTE: Watch out for window resizes later..
 
     VK_CHECK(vkCreateImageView(_device, &depthImageViewInfo, nullptr, &_depthImage.imageView));
 
+    //Initialize the descriptor allocators for each frame in flight
+    for (int i = 0; i < FRAMES_IN_FLIGHT; ++i) {
+        std::vector<DynamicDescriptorAllocator::PoolSizeRatio> frameSizes = {
+            { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3 },
+            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3 },
+            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4 },
+        };
+    }
+
     //Ensure deletion of the image and image view by adding it to the deletion queue
     _mainDeletionQueue.push([=]() {
         vkDestroyImageView(_device, _drawImage.imageView, nullptr);
@@ -687,8 +715,12 @@ void TsukiEngine::resizeSwapChain() {
 }
 
 void TsukiEngine::initDescriptors() {
-    std::vector<DescriptorAllocator::PoolSizeRatio> sizes = { {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1} }; //1 storage image (image writeable to from compute shader) per descriptor set
-    globalDescriptorAllocator.initPool(_device, 10, sizes); //Max 10 descriptor sets
+    std::vector<DynamicDescriptorAllocator::PoolSizeRatio> sizes = { 
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1}, //1 storage image (image writeable to from compute shader) per descriptor set
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1}
+    }; 
+    globalDescriptorAllocator.init(_device, 10, sizes); //Max 10 descriptor sets
 
     DescriptorLayoutBuilder builder;
     builder.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE); //Promise an image at binding 0
@@ -713,17 +745,19 @@ void TsukiEngine::initDescriptors() {
 
     vkUpdateDescriptorSets(_device, 1, &drawImageWrite, 0, nullptr);
 
-    _mainDeletionQueue.push([&]() {
-        globalDescriptorAllocator.destroyPool(_device);
-        vkDestroyDescriptorSetLayout(_device, _drawImageDescriptorLayout, nullptr);
-        });
-
     //Create a descriptor set layout that notes a uniform buffer will be available at the vertex and fragment shader stages
     {
         DescriptorLayoutBuilder builder;
         builder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
         _sceneDataDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
     }
+
+    _mainDeletionQueue.push([&]() {
+        globalDescriptorAllocator.destroyPools(_device);
+        vkDestroyDescriptorSetLayout(_device, _drawImageDescriptorLayout, nullptr);
+        vkDestroyDescriptorSetLayout(_device, _singleImageDescriptorLayout, nullptr);
+        vkDestroyDescriptorSetLayout(_device, _sceneDataDescriptorLayout, nullptr);
+        });
 
     //Create a descriptor pool for each frame in flight
     for (int i = 0; i < FRAMES_IN_FLIGHT; ++i) {
@@ -737,6 +771,7 @@ void TsukiEngine::initDescriptors() {
         _frames[i]._frameDescriptors = DynamicDescriptorAllocator{};
         _frames[i]._frameDescriptors.init(_device, 1000, framePoolSizes);
 
+        //Ensure deletion of the frames' descriptor pools
         _mainDeletionQueue.push([&, i]() {
             _frames[i]._frameDescriptors.destroyPools(_device);
             });
@@ -824,6 +859,8 @@ void TsukiEngine::initBackgroundPipelines() { //TODO: Just copy this over to ini
         vkDestroyPipeline(_device, colorBlend.pipeline, nullptr);
         vkDestroyPipeline(_device, gradient.pipeline, nullptr);
         });
+
+    metallicRoughnessMaterial.buildPipelines(this);
 }
 
 void TsukiEngine::initImgui() { //TODO
@@ -853,7 +890,7 @@ void TsukiEngine::initImgui() { //TODO
 
     //Initialize IMGUI
     ImGui::CreateContext();
-    ImGui_ImplGlfw_InitForVulkan(_window, true);
+    ImGui_ImplGlfw_InitForVulkan(_window, false);
 
     ImGui_ImplVulkan_InitInfo initInfo{};
     initInfo.Instance = _instance;
@@ -961,7 +998,9 @@ void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer) {
 
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipeline);
 
-    //Allocate a descriptor set for the texture image from our dynamic descriptor set allocator
+    //NOTE: We allocate descriptor sets from our frame specific and global allocators each frame
+
+    //Allocate a descriptor set for the texture image from our frame's dynamic descriptor set allocator
     VkDescriptorSet imageSet = getCurrFrame()._frameDescriptors.allocate(_device, _singleImageDescriptorLayout);
 
     { //Scope this
@@ -969,11 +1008,6 @@ void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer) {
         writer.writeImage(0, _errorCheckerboardImage.imageView, _defaultSamplerNearest, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
         writer.updateSet(_device, imageSet);
     }
-
-    vkCmdPushConstants(commandBuffer, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pushConstants);
-    vkCmdBindIndexBuffer(commandBuffer, rectangle.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-
-    //vkCmdDrawIndexed(commandBuffer, 6, 1, 0, 0, 0);
 
     AllocatedBuffer sceneDataBuffer = createBuffer(sizeof(SceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
     getCurrFrame()._deletionQueue.push([=, this]() {
@@ -994,16 +1028,25 @@ void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer) {
     //Bind the descriptor set containing our texture
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipelineLayout, 0, 1, &imageSet, 0, nullptr);
 
-    pushConstants.vertexBuffer = testMeshes[2]->meshBuffers.vertexBufferAddress;
     glm::mat4 view = glm::translate(glm::vec3(0, 0, -5));
     glm::mat4 proj = glm::perspective(glm::radians(70.f), static_cast<float>(_drawExtent.width) / static_cast<float>(_drawExtent.height), .1f, 10000.f);
     proj[1][1] *= -1; //Flip the Y of the projection matrix
     pushConstants.worldMatrix = proj * view;
 
-    vkCmdPushConstants(commandBuffer, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pushConstants);
-    vkCmdBindIndexBuffer(commandBuffer, testMeshes[2]->meshBuffers.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+    for (const TsukiRenderObject &draw : _mainDrawContext.opaqueSurfaces) {
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->pipeline);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->layout, 0, 1, &globalDescriptor, 0, nullptr);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->layout, 1, 1, &draw.material->descriptorSet, 0, nullptr);
 
-    vkCmdDrawIndexed(commandBuffer, testMeshes[2]->subMeshes[0].size, 1, testMeshes[2]->subMeshes[0].offset, 0, 0);
+        vkCmdBindIndexBuffer(commandBuffer, draw.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+
+        GPUDrawPushConstants pushConstants;
+        pushConstants.vertexBuffer = draw.vertexBufferAddress;
+        pushConstants.worldMatrix = draw.transform;
+        vkCmdPushConstants(commandBuffer, draw.material->pipeline->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pushConstants);
+
+        vkCmdDrawIndexed(commandBuffer, draw.size, 1, draw.offset, 0, 0);
+    }
     
     vkCmdEndRendering(commandBuffer);
 }
@@ -1106,6 +1149,7 @@ void TsukiEngine::initDefaultMeshData() {
         VK_IMAGE_USAGE_SAMPLED_BIT);
 
     VkSamplerCreateInfo sampler{};
+    sampler.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
 
     sampler.magFilter = VK_FILTER_NEAREST;
     sampler.minFilter = VK_FILTER_NEAREST;
@@ -1148,7 +1192,20 @@ void TsukiEngine::initDefaultMeshData() {
     materialResources.dataBuffer = materialConstants.buffer;
     materialResources.dataBufferOffset = 0;
 
+    //Create a default material
     defaultData = metallicRoughnessMaterial.writeMaterial(_device, TsukiMaterialPass::TSUKI_MATERIAL_OPAQUE, materialResources, globalDescriptorAllocator);
+    for (auto &testMesh : testMeshes) {
+        std::shared_ptr<TMeshNode> newNode = std::make_shared<TMeshNode>();
+        newNode->mesh = testMesh;
+
+        newNode->localTransform = glm::mat4(1);
+        newNode->worldTransform = glm::mat4(1);
+
+        for (auto &subMesh : newNode->mesh->subMeshes) {
+            subMesh.material = std::make_shared<GLTFMaterial>(defaultData);
+        }
+        loadedNodes[testMesh->name] = std::move(newNode);
+    }
 }
 //End Chapter 3
 
@@ -1215,6 +1272,31 @@ AllocatedImage TsukiEngine::createImage(void *data, VkExtent3D extent, VkFormat 
 void TsukiEngine::destroyImage(const AllocatedImage &image) {
     vkDestroyImageView(_device, image.imageView, nullptr);
     vmaDestroyImage(_allocator, image.image, image.allocation);
+}
+
+void TsukiEngine::updateScene() {
+    _mainDrawContext.opaqueSurfaces.clear();
+
+    loadedNodes["Suzanne"]->queueDraw(glm::mat4(1), _mainDrawContext);
+
+    sceneData.view = camera.getView();
+    sceneData.proj = glm::perspective(glm::radians(70.f), static_cast<float>(_windowExtent.width) / static_cast<float>(_windowExtent.height),
+        .1f, 10000.f);
+
+    //Invert y for Vulkan
+    sceneData.proj[1][1] *= -1;
+    sceneData.viewproj = sceneData.proj * sceneData.view;
+
+    sceneData.ambient = glm::vec4(.1f);
+    sceneData.lightDir = glm::vec4(0, 1, 0.5, 1.f);
+    sceneData.lightColor = glm::vec4(1);
+
+    for (int x = -3; x < 3; ++x) {
+        glm::mat4 scale = glm::scale(glm::vec3(.2f));
+        glm::mat4 trans = glm::translate(glm::vec3(x, 1, 0));
+
+        loadedNodes["Cube"]->queueDraw(trans * scale, _mainDrawContext);
+    }
 }
 //End Chapter 4
 

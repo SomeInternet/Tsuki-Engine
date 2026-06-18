@@ -15,24 +15,24 @@
 
 std::optional <std::vector<std::shared_ptr<Mesh>>> tsukiutil::loadGltf(TsukiEngine *engine, std::filesystem::path filePath) {
 	std::cout << "Loading GLTF: " << filePath << std::endl;
-	std::cout << "  exists: " << std::filesystem::exists(filePath) << std::endl;
+	//std::cout << "  exists: " << std::filesystem::exists(filePath) << std::endl;
 
 	fastgltf::GltfDataBuffer data;
 	bool loaded = data.loadFromFile(filePath);
-	std::cout << "  loadFromFile returned: " << loaded << std::endl;
+	//std::cout << "  loadFromFile returned: " << loaded << std::endl;
 
 	constexpr auto gltfOptions = fastgltf::Options::LoadGLBBuffers | fastgltf::Options::LoadExternalBuffers;
 
 	fastgltf::Asset gltf;
 	fastgltf::Parser parser{};
 
-	std::cout << "  calling loadBinaryGLTF..." << std::endl;
+	//std::cout << "  calling loadBinaryGLTF..." << std::endl;
 	auto load = parser.loadBinaryGLTF(&data, filePath.parent_path(), gltfOptions);
-	std::cout << "  loadBinaryGLTF returned, valid: " << (bool)load << std::endl;
+	//std::cout << "  loadBinaryGLTF returned, valid: " << (bool)load << std::endl;
 
 	if (load) {
 		gltf = std::move(load.get());
-		std::cout << "  mesh count: " << gltf.meshes.size() << std::endl;
+		//std::cout << "  mesh count: " << gltf.meshes.size() << std::endl;
 	}
 	else {
 		std::cerr << "Failed to load gltf! " << fastgltf::to_underlying(load.error()) << std::endl;
@@ -44,7 +44,7 @@ std::optional <std::vector<std::shared_ptr<Mesh>>> tsukiutil::loadGltf(TsukiEngi
 	std::vector<Vertex> vertices;
 
 	for (fastgltf::Mesh &mesh : gltf.meshes) {
-		std::cout << "  mesh: " << mesh.name << ", primitives: " << mesh.primitives.size() << std::endl;
+		//std::cout << "  mesh: " << mesh.name << ", primitives: " << mesh.primitives.size() << std::endl;
 		Mesh newMesh;
 		newMesh.name = mesh.name;
 
@@ -69,7 +69,7 @@ std::optional <std::vector<std::shared_ptr<Mesh>>> tsukiutil::loadGltf(TsukiEngi
 
 			std::cout << "    primitive attribute count: " << p.attributes.size() << std::endl;
 			for (auto &attr : p.attributes) {
-				std::cout << "      attr: " << attr.first << std::endl;
+				//std::cout << "      attr: " << attr.first << std::endl;
 			}
 
 			//Load the vertex positions
@@ -125,7 +125,7 @@ std::optional <std::vector<std::shared_ptr<Mesh>>> tsukiutil::loadGltf(TsukiEngi
 
 		//Upload mesh buffers
 		newMesh.meshBuffers = engine->uploadMesh(indices, vertices);
-		std::cout << "  uploaded mesh: " << newMesh.name << ", vertices: " << vertices.size() << ", indices: " << indices.size() << std::endl;
+		//std::cout << "  uploaded mesh: " << newMesh.name << ", vertices: " << vertices.size() << ", indices: " << indices.size() << std::endl;
 		meshes.emplace_back(std::make_shared<Mesh>(std::move(newMesh)));
 	}
 

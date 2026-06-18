@@ -63,6 +63,9 @@
     <ClCompile Include="t_loader.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="t_camera.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="t_engine.h">
@@ -86,6 +89,12 @@
     <ClInclude Include="t_descriptors.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="t_camera.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="t_input.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="README.md" />
@@ -102,6 +111,9 @@
       <Filter>Shaders</Filter>
     </None>
     <None Include="Shaders\buffertest.slang">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="Shaders\meshshader.slang">
       <Filter>Shaders</Filter>
     </None>
   </ItemGroup>

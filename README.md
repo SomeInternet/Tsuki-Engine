@@ -38,7 +38,18 @@ Code Structure
 
 `t_engine.h/cpp` - defines main engine functions
 
-`t_types.h/cpp` - defines helper functions for Vulkan struct initilization
+`t_types.h/cpp` - defines helper functions for Vulkan struct initialization
+
+`t_pipelines.h/cpp` - abstractions for creating a pipeline layout/pipeline
+
+`t_descriptors.h/cpp` - defines helper classes for managing descriptor pools via `DynamicDescriptorAllocator`,
+creating descriptor set layouts via `DescriptorLayoutBuilder`, and updating descriptor sets via `DescriptorWriter`
+
+`t_loader.h/cpp` - defines helpers for loading GLTF files
+
+`t_initializers.h/cpp` - defines helpers to reduce boilerplate for `___CreateInfo` structs
+
+`t_images.h/cpp` - defines wrappers for managing images via the `AllocatedImage` class
 
 Attributions
 --------------------
@@ -48,7 +59,8 @@ Resources used:
 * **Vulkan Tutorial** - Used for initial VS project setup, and used for Vulkan object creation in place of `vkbootstrap`.
 
 External libraries used:
-* `DearIMGui`
-* `GLM`
-* `tinyGLTF`
 * `GLFW`
+* `GLM`
+* * `DearIMGui`
+* `fastGLTF`
+* `VMA`
