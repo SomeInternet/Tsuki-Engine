@@ -188,9 +188,10 @@ void TsukiEngine::init() {
         tsukiEngine->_render = !iconified;
         });
     
-    glfwSetMouseButtonCallback(_window, TsukiCamera::mouseButtonCallback);
-    glfwSetCursorPosCallback(_window, TsukiCamera::cursorPosCallback);
-    glfwSetScrollCallback(_window, TsukiCamera::scrollCallback);
+    glfwSetKeyCallback(_window, TsukiInput::keyCallback);
+    glfwSetMouseButtonCallback(_window, TsukiInput::mouseButtonCallback);
+    glfwSetCursorPosCallback(_window, TsukiInput::cursorPosCallback);
+    glfwSetScrollCallback(_window, TsukiInput::scrollCallback);
 
 	//Initialize Vulkan
 	initVulkan();

@@ -157,6 +157,7 @@
     <ClCompile Include="t_engine.cpp" />
     <ClCompile Include="t_images.cpp" />
     <ClCompile Include="t_initializers.cpp" />
+    <ClCompile Include="t_input.cpp" />
     <ClCompile Include="t_loader.cpp" />
     <ClCompile Include="t_pipelines.cpp" />
   </ItemGroup>

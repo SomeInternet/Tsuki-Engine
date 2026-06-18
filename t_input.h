@@ -1,4 +1,6 @@
 #pragma once
+#include "t_types.h"
+
 struct TsukiInput {
 	bool firstMouse{ true };
 
@@ -14,4 +16,9 @@ struct TsukiInput {
 	bool keyAHeld{ false };
 	bool keySHeld{ false };
 	bool keyDHeld{ false };
+
+	static void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods);
+	static void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods);
+	static void cursorPosCallback(GLFWwindow *window, double xPos, double yPos);
+	static void scrollCallback(GLFWwindow *window, double xOffset, double yOffset);
 };
