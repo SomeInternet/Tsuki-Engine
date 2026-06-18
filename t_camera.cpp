@@ -62,10 +62,10 @@ void TsukiCamera::cursorPosCallback(GLFWwindow *window, double xPos, double yPos
 	}
 
 	if (input.mouseRightHeld) {
-		camera.rotDirty = true;
 		camera.viewDirty = true;
-		glm::vec3 right = glm::vec3(camera.getRot() * glm::vec4(1, 0, 0, 0));
-		glm::vec3 up = glm::vec3(camera.getRot() * glm::vec4(0, 1, 0, 0));
+
+		glm::vec3 right = glm::transpose(glm::mat3(camera.getRot())) * glm::vec3(1, 0, 0);
+		glm::vec3 up = glm::transpose(glm::mat3(camera.getRot())) * glm::vec3(0, 1, 0);
 
 		camera.origin += camera.sensitivity * (deltaX * right - deltaY * up);
 	}
