@@ -5,6 +5,8 @@
 #include "t_input.h"
 #include "t_camera.h"
 
+#include <unordered_map>
+
 #define WIDTH 1700
 #define HEIGHT 900
 
@@ -184,6 +186,10 @@ public:
 	std::unordered_map<std::string, std::shared_ptr<TNode>> loadedNodes;
 	//
 
+	//Chapter 5
+	std::unordered_map<TsukiGLTF> loadedScenes;
+	//
+
 	//IMGUI
 	VkFence _immFence;
 	VkCommandBuffer _immCommandBuffer;
@@ -208,6 +214,17 @@ public:
 	void drawBackground(VkCommandBuffer commandBuffer, uint32_t swapChainImageIndex);
 
 	void immediateSubmit(std::function<void(VkCommandBuffer commandBuffer)> &&function);
+
+	//Chapter 4
+	AllocatedImage createImage(VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmaps = false);
+	AllocatedImage createImage(void *data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmaps = false);
+	void destroyImage(const AllocatedImage &image);
+	void updateScene();
+	//
+
+	//TODO: Move this elswhere?
+	AllocatedBuffer createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
+	void destroyBuffer(const AllocatedBuffer &buffer);
 
 	//MESH HELPERS
 	//===================================================================================================================
@@ -241,17 +258,6 @@ private:
 	void initMeshPipeline();
 	void initDefaultMeshData();
 	//
-
-	//Chapter 4
-	AllocatedImage createImage(VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmaps = false);
-	AllocatedImage createImage(void *data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmaps = false);
-	void destroyImage(const AllocatedImage &image);
-	void updateScene();
-	//
-
-	//TODO: Move this elswhere?
-	AllocatedBuffer createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
-	void destroyBuffer(const AllocatedBuffer &buffer);
 
 	//VULKAN SETUP (ADAPTED FROM VULKAN-TUTORIAL)
 	//===================================================================================================================

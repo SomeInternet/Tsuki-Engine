@@ -201,3 +201,8 @@ struct TNode : public TRenderable {
 //the programmer sees fit until the budget can't accommodate it anymore
 
 //std::vectors can be implicitly converted to std::spans
+
+//The advantage that weak pointers have over raw pointers is protection against dangling
+//To read or modify the data, you must temporarily promote the weak pointer to a shared pointer via .lock()
+//.lock() returns nullptr if the resource pointed to no longer exists
+//You can therefore use .lock() to check if the resource is still alive
