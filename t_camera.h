@@ -6,7 +6,7 @@ public:
 	bool rotDirty{ true };
 	bool viewDirty{ true };
 	
-	float radius{ 5.f };
+	float radius{ 10.f };
 	float velocity{ 1.f };
 	glm::vec3 origin{ 0 };
 

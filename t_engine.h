@@ -40,6 +40,14 @@ struct FrameData {
 	DynamicDescriptorAllocator _frameDescriptors;
 };
 
+struct Benchmarker {
+	float frameTime;
+	int numTriangles;
+	int numDrawCalls;
+	float sceneUpdateTime;
+	float meshDrawTime;
+};
+
 //MATERIALS
 //===================================================================================================================
 struct GLTFMetallicRoughness {
@@ -52,6 +60,9 @@ struct GLTFMetallicRoughness {
 	struct MaterialConstants { //TODO: Improve later
 		glm::vec4 colorFac; //Like the BRDF
 		glm::vec4 metallicRoughnessFac; //PBR Parameters
+
+		//TODO: Add emission...
+
 		glm::vec4 padding[14]; //Padding to meet the 256 bytes
 	};
 
@@ -96,7 +107,8 @@ struct TsukiRenderObject {
 };
 
 struct TsukiDrawContext {
-	std::vector<TsukiRenderObject> opaqueSurfaces;
+	std::vector<TsukiRenderObject> opaqueObjects;
+	std::vector<TsukiRenderObject> transparentObjects;
 };
 
 class TsukiEngine {
@@ -187,7 +199,9 @@ public:
 	//
 
 	//Chapter 5
-	std::unordered_map<TsukiGLTF> loadedScenes;
+	std::unordered_map<std::string, std::shared_ptr<TsukiGLTF>> loadedScenes;
+
+	Benchmarker _benchmarker;
 	//
 
 	//IMGUI

@@ -30,13 +30,13 @@
 
 //The do-while helps w/ expansion, and scopes the err
 //TODO: Either fix the fmt stuff, or just use std::cout or std::cerr
-#define VK_CHECK(x)																\
-	do {																		\
-		VkResult err = x;														\
-		if (err) {																\
-			std::cerr << "Vulkan error: " << string_VkResult(err) << std::endl;	\
-			abort();															\
-		}																		\
+#define VK_CHECK(x)																																\
+	do {																																		\
+		VkResult err = x;																														\
+		if (err) {																																\
+			std::cerr << "Vulkan error at file: " << __FILE__ << ", line: " << __LINE__ << ", error: " << string_VkResult(err) << std::endl;	\
+			abort();																															\
+		}																																		\
 	} while (0)
 
 #define PI 3.14159265358979f
@@ -106,20 +106,19 @@ struct GPUMeshBuffers {
 
 struct GPUDrawPushConstants {
 	glm::mat4 worldMatrix;
+	glm::mat4 inverseTranspose;
 	VkDeviceAddress vertexBuffer;
 };
 
 //
-struct SceneData {
+struct SceneData { //TODO: Update
 	glm::mat4 view;
 	glm::mat4 proj;
 	glm::mat4 viewproj;
 
-	//This information is unnecessary for a pathtracer. The viewport light direction would probably just be the camera look direction
-	//TODO: Remove this and change the struct 
-	glm::vec4 ambient;
-	glm::vec4 lightDir;
-	glm::vec4 lightColor;
+	glm::vec3 camPos;
+
+	float ambient;
 };
 
 //MATERIALS
@@ -206,3 +205,5 @@ struct TNode : public TRenderable {
 //To read or modify the data, you must temporarily promote the weak pointer to a shared pointer via .lock()
 //.lock() returns nullptr if the resource pointed to no longer exists
 //You can therefore use .lock() to check if the resource is still alive
+
+//glTF's (glb's, at least) store the base material colors in the material constants, in this implementation

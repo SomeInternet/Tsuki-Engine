@@ -3,14 +3,14 @@ struct SceneData {
     float4x4 proj;
     float4x4 viewproj;
 
-    float4 ambient;
-    float4 lightDir;
-    float4 lightColor;
+    float3 camPos;
+
+    float ambient;
 };
 
 struct GLTFMaterialData {
-    float4 colorFac;
-    float4 metallicRoughnessFac;
+    float4 colorFac; //Like a BRDF
+    float4 metallicRoughnessFac; //PBR parameters
 };
 
 struct Vertex {
@@ -23,11 +23,13 @@ struct Vertex {
 
 struct PushConstants {
     float4x4 worldMatrix;
+    float4x4 inverseTranspose; //4x4 for memory alignment reasons--rows get 16 bytes each, whereas the CPU tightly packs the floats (I think)
     Vertex *vertexBuffer;
 };
 
 struct VSOutput {
     float4 pos : SV_Position;
+    float3 worldPos;
     float3 normal;
     float3 color;
     float2 uv;
@@ -58,8 +60,9 @@ VSOutput vertMain(uint index: SV_VertexID) {
 
     VSOutput vsOutput;
     vsOutput.pos = mul(sceneData.viewproj, mul(vsInput.worldMatrix, pos));
-    vsOutput.normal = mul(vsInput.worldMatrix, float4(v.normal, 0)).xyz;
-    vsOutput.color = mul(v.color.rgb, gltfMaterialData.colorFac.rgb);
+    vsOutput.worldPos = mul(vsInput.worldMatrix, pos).xyz;
+    vsOutput.normal = mul(vsInput.inverseTranspose, float4(v.normal, 1)).xyz;
+    vsOutput.color = gltfMaterialData.colorFac.rgb;
     vsOutput.uv.x = v.uvX;
     vsOutput.uv.y = v.uvY;
 
@@ -68,9 +71,12 @@ VSOutput vertMain(uint index: SV_VertexID) {
 
 [shader("fragment")]
 float4 fragMain(VSOutput fsInput) : SV_Target {
-    float lambertian = max(dot(fsInput.normal, sceneData.lightDir.xyz), .1f);
-    float3 color = mul(fsInput.color, colorTexture.Sample(fsInput.uv).rgb);
-    float3 ambient = mul(color, sceneData.ambient.rgb);
+    float3 camPos = mul(sceneData.view, float4(0, 0, 0, 1)).xyz;
 
-    return float4(mul(lambertian, mul(sceneData.lightColor.a, color)) + ambient, 1);
+    float lambertian = max(dot(normalize(fsInput.normal), normalize(sceneData.camPos - fsInput.worldPos)), sceneData.ambient);
+    float3 color = mul(fsInput.color, colorTexture.Sample(fsInput.uv).rgb);
+
+    //return float4(fsInput.normal, 1);
+    //return float4(fsInput.color, 1);
+    return float4(float3(lambertian), 1);
 }

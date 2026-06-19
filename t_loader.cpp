@@ -1,4 +1,3 @@
-#include "stb_image.h"
 #include <iostream>
 
 #include "t_engine.h"
@@ -9,21 +8,40 @@
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtx/transform.hpp>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 //TSUKIGLTF
 //===================================================================================================================
-void TsukiGLTF::queueDraw(const glm::mat4 &matrix, TsukiDrawContext context) {
+void TsukiGLTF::queueDraw(const glm::mat4 &matrix, TsukiDrawContext &context) {
 	for (auto &rootNode : rootNodes) {
 		rootNode->queueDraw(matrix, context);
 	}
 }
 
 void TsukiGLTF::clear() { //TODO: Verify
-	meshes.clear();
-	nodes.clear();
-	images.clear();
-	materials.clear();
-	rootNodes.clear();
-	samplers.clear();
+	VkDevice device = engine->_device;
+
+	descriptorAllocator.destroyPools(device);
+	engine->destroyBuffer(materialDataBuffer);
+
+	//Deallocate all the buffers for the meshes
+	for (auto &[key, value] : meshes) {
+		engine->destroyBuffer(value->meshBuffers.indexBuffer);
+		engine->destroyBuffer(value->meshBuffers.vertexBuffer);
+	}
+
+	//Destroy the images
+	for (auto &[key, value] : images) {
+		if (value.image == engine->_errorCheckerboardImage.image) { continue; } //Excepting the error checkerboard, which belongs to the engine
+
+		engine->destroyImage(value);
+	}
+
+	//Destroy the samplers
+	for (auto &sampler : samplers) {
+		vkDestroySampler(device, sampler, nullptr);
+	}
 }
 
 //TSUKIUTIL
@@ -213,9 +231,17 @@ std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf2(TsukiEngine *eng
 	//Load textures
 	for (fastgltf::Image &image : gltf.images) {
 		//TODO: update
+		std::optional<AllocatedImage> texture = tsukiutil::loadGltfImage(engine, gltf, image);
+
+		if (texture.has_value()) { //Image load successful, push it back
+			images.push_back(*texture);
+			file.images[image.name.c_str()] = *texture;
+		}
+		else { //Image load failed, load error texture
+			images.push_back(engine->_errorCheckerboardImage);
+			std::cerr << "Failed to load glTF image texture: " << image.name << std::endl;
+		}
 		
-		//Temporary
-		images.push_back(engine->_errorCheckerboardImage);
 	}
 
 	//Load material data into a buffer
@@ -406,6 +432,73 @@ std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf2(TsukiEngine *eng
 	}
 
 	return scene;
+}
+
+std::optional<AllocatedImage> tsukiutil::loadGltfImage(TsukiEngine *engine, fastgltf::Asset &asset, fastgltf::Image &image) {
+	AllocatedImage newImage{};
+
+	int width, height, numChannels;
+
+	std::visit(
+		fastgltf::visitor{ [](auto &arg) {},
+		[&](fastgltf::sources::URI &filePath) { //Case 1) Texture stored outside of the glTF/glb file
+			assert(filePath.fileByteOffset == 0); //No stbi offsets
+			assert(filePath.uri.isLocalPath());
+
+			const std::string path(filePath.uri.path().begin(), filePath.uri.path().end());
+			unsigned char *data = stbi_load(path.c_str(), &width, &height, &numChannels, 4); //Read in the image data to a buffer
+
+			if (data) {
+				VkExtent3D extent;
+				extent.width = width;
+				extent.height = height;
+				extent.depth = 1;
+
+				newImage = engine->createImage(data, extent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+
+				stbi_image_free(data);
+			}
+		},
+		[&](fastgltf::sources::Vector &vector) { //Case 2) Fastgltf read in the file to a vector
+			unsigned char *data = stbi_load_from_memory(vector.bytes.data(), static_cast<int>(vector.bytes.size()), &width, &height, &numChannels, 4);
+
+			if (data) {
+				VkExtent3D extent;
+				extent.width = width;
+				extent.height = height;
+				extent.depth = 1;
+
+				newImage = engine->createImage(data, extent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+			}
+		},
+		[&](fastgltf::sources::BufferView &view) { //Case 3) Image is embedded in a binary glb file
+			auto &bufferView = asset.bufferViews[view.bufferViewIndex];
+			auto &buffer = asset.buffers[bufferView.bufferIndex];
+
+			std::visit(fastgltf::visitor{ [](auto &arg) {},
+				[&](fastgltf::sources::Vector &vector) {
+					unsigned char *data = stbi_load_from_memory(vector.bytes.data() + bufferView.byteOffset,
+						static_cast<int>(bufferView.byteLength),
+						&width, &height, &numChannels, 4);
+					if (data) {
+						VkExtent3D imagesize;
+						imagesize.width = width;
+						imagesize.height = height;
+						imagesize.depth = 1;
+
+						newImage = engine->createImage(data, imagesize, VK_FORMAT_R8G8B8A8_UNORM,
+							VK_IMAGE_USAGE_SAMPLED_BIT,false);
+
+						stbi_image_free(data);
+					}
+				} },
+				buffer.data);
+		},
+	}, image.data);
+
+	if (newImage.image == VK_NULL_HANDLE) { return{}; }
+
+	return newImage;
 }
 
 //GLTF LOADING HELPERS

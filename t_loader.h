@@ -1,8 +1,15 @@
 #pragma once
 #include "t_types.h"
+#include "t_descriptors.h"
 
 #include <unordered_map>
 #include <filesystem>
+
+//TODO: Change loadGLTF2 to load the glTF geometry into 1 giant vertex and index buffer
+//So remove the vertices.clear(), indices.clear() for each submesh
+//Might want to read into how GLTF's work...
+//Do some refactoring as well
+//I'll also need a parallel material lookup buffer
 
 //NOTE: The version of fastgltf used by VkGuide is outdated. I may want to use a more modern version...
 #include <fastgltf/glm_element_traits.hpp>
@@ -47,7 +54,7 @@ struct TsukiGLTF {
 
 	~TsukiGLTF() { clear(); }
 
-	virtual void queueDraw(const glm::mat4 &matrix, TsukiDrawContext context);
+	virtual void queueDraw(const glm::mat4 &matrix, TsukiDrawContext &context);
 
 private:
 	void clear();
@@ -57,9 +64,11 @@ private:
 //===================================================================================================================
 
 namespace tsukiutil {
-	std::optional <std::vector<std::shared_ptr<Mesh>>> loadGltf(TsukiEngine *engine, std::filesystem::path filePath);
+	std::optional<std::vector<std::shared_ptr<Mesh>>> loadGltf(TsukiEngine *engine, std::filesystem::path filePath);
 
-	std::optional <std::shared_ptr<TsukiGLTF>> loadGltf2(TsukiEngine *engine, std::filesystem::path filePath);
+	std::optional<std::shared_ptr<TsukiGLTF>> loadGltf2(TsukiEngine *engine, std::filesystem::path filePath);
+
+	std::optional<AllocatedImage> loadGltfImage(TsukiEngine *engine, fastgltf::Asset &asset, fastgltf::Image &image);
 
 	//GLTF LOADING HELPERS
 	//===================================================================================================================

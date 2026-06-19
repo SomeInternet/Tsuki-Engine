@@ -157,8 +157,9 @@ void TMeshNode::queueDraw(const glm::mat4 &matrix, TsukiDrawContext &context) {
         def.material = &subMesh.material->data;
         def.transform = nodeMatrix;
         def.vertexBufferAddress = mesh->meshBuffers.vertexBufferAddress;
+        //std::cerr << "vertexBufferAddress: " << def.vertexBufferAddress << std::endl;
 
-        context.opaqueSurfaces.push_back(def);
+        context.opaqueObjects.push_back(def);
     }
 
     //Recurse to the children
@@ -208,6 +209,12 @@ void TsukiEngine::init() {
     initDefaultMeshData();
 
     initImgui();
+    
+    //Load the Cornell Box scene
+    std::string cornellBoxPath = "./Models/cornellbox.glb";
+    auto cornellBoxFile = tsukiutil::loadGltf2(this, cornellBoxPath);
+    assert(cornellBoxFile.has_value());
+    loadedScenes["Cornell Box"] = *cornellBoxFile;
 
 	_isInit = true;
 }
@@ -215,6 +222,8 @@ void TsukiEngine::init() {
 void TsukiEngine::cleanup() {
 	if (_isInit) {
         vkDeviceWaitIdle(_device);
+
+        loadedScenes.clear();
 
         //TODO: Destroy synchronization structures
 
@@ -364,6 +373,9 @@ void TsukiEngine::draw() {
 void TsukiEngine::run() {
     //return;
 	while (!glfwWindowShouldClose(_window)) {
+        //Begin clock
+        auto start = std::chrono::system_clock::now();
+
 		glfwPollEvents();
 
         //TODO: Make sure events process correctly
@@ -388,15 +400,29 @@ void TsukiEngine::run() {
                 ImGui::InputFloat4("data2", (float *)&selected.data.data2);
                 ImGui::InputFloat4("data3", (float *)&selected.data.data3);
                 ImGui::InputFloat4("data4", (float *)&selected.data.data4);
+                ImGui::End();
             }
-            ImGui::End();
+
+            if (ImGui::Begin("Benchmarks")) {
+                ImGui::Text("frametime %f ms", _benchmarker.frameTime);
+                ImGui::Text("draw time %f ms", _benchmarker.meshDrawTime);
+                ImGui::Text("update time %f ms", _benchmarker.sceneUpdateTime);
+                ImGui::Text("triangles %i", _benchmarker.numTriangles);
+                ImGui::Text("draws %i", _benchmarker.numDrawCalls);
+                ImGui::End();
+            }
 
             ImGui::Render();
 
             draw();
         }
-    }
-        
+
+        //Check time to determine total frame time
+        auto end = std::chrono::system_clock::now();
+
+        auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        _benchmarker.frameTime = elapsed.count() / 1000.f;
+    }  
 }
 
 //PUBLIC HELPERS
@@ -513,28 +539,30 @@ void TsukiEngine::destroyImage(const AllocatedImage &image) {
 }
 
 void TsukiEngine::updateScene() {
-    _mainDrawContext.opaqueSurfaces.clear();
+    //Setup clock for benchmarking
+    auto start = std::chrono::system_clock::now();
 
-    loadedNodes["Suzanne"]->queueDraw(glm::mat4(1), _mainDrawContext);
+    _mainDrawContext.opaqueObjects.clear();
 
-    sceneData.view = camera.getView();
-    sceneData.proj = glm::perspective(glm::radians(70.f), static_cast<float>(_windowExtent.width) / static_cast<float>(_windowExtent.height),
-        .1f, 10000.f);
+    loadedScenes["Cornell Box"]->queueDraw(glm::mat4(1), _mainDrawContext);
 
-    //Invert y for Vulkan
-    sceneData.proj[1][1] *= -1;
-    sceneData.viewproj = sceneData.proj * sceneData.view;
+    //Update the scene data struct, to be passed as a uniform buffer later
+    {
+        sceneData.view = camera.getView();
+        sceneData.proj = glm::perspective(glm::radians(70.f), static_cast<float>(_windowExtent.width) / static_cast<float>(_windowExtent.height),
+            .1f, 10000.f);
 
-    sceneData.ambient = glm::vec4(.1f);
-    sceneData.lightDir = glm::vec4(0, 1, 0.5, 1.f);
-    sceneData.lightColor = glm::vec4(1);
+        //Invert y for Vulkan
+        sceneData.proj[1][1] *= -1;
+        sceneData.viewproj = sceneData.proj * sceneData.view;
+        sceneData.camPos = glm::vec3(glm::inverse(sceneData.view) * glm::vec4(0, 0, 0, 1));
 
-    for (int x = -3; x < 3; ++x) {
-        glm::mat4 scale = glm::scale(glm::vec3(.2f));
-        glm::mat4 trans = glm::translate(glm::vec3(x, 1, 0));
-
-        loadedNodes["Cube"]->queueDraw(trans * scale, _mainDrawContext);
+        sceneData.ambient = .1f;
     }
+
+    auto end = std::chrono::system_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    _benchmarker.sceneUpdateTime = elapsed.count() / 1000.f;
 }
 //End Chapter 4
 
@@ -1077,6 +1105,12 @@ void TsukiEngine::initTrianglePipeline() {
 }
 
 void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer) {
+    //Benchmarking setup
+    _benchmarker.numDrawCalls = 0;
+    _benchmarker.numTriangles = 0;
+    //Begin clock for mesh draw time
+    auto start = std::chrono::system_clock::now();
+
     VkRenderingAttachmentInfo colorAttachment = tsukiinit::tAttachmentInfo(_drawImage.imageView, nullptr);
     VkRenderingAttachmentInfo depthAttachment = tsukiinit::tDepthAttachmentInfo(_depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
 
@@ -1108,6 +1142,7 @@ void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer) {
 
     GPUDrawPushConstants pushConstants;
     pushConstants.worldMatrix = glm::mat4{ 1.f };
+    pushConstants.inverseTranspose = glm::mat4{ 1.f };
     pushConstants.vertexBuffer = rectangle.vertexBufferAddress;
 
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipeline);
@@ -1145,9 +1180,10 @@ void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer) {
     glm::mat4 view = glm::translate(glm::vec3(0, 0, -5));
     glm::mat4 proj = glm::perspective(glm::radians(70.f), static_cast<float>(_drawExtent.width) / static_cast<float>(_drawExtent.height), .1f, 10000.f);
     proj[1][1] *= -1; //Flip the Y of the projection matrix
-    pushConstants.worldMatrix = proj * view;
+    //pushConstants.worldMatrix = proj * view;
 
-    for (const TsukiRenderObject &draw : _mainDrawContext.opaqueSurfaces) {
+    //Lambda for drawing
+    auto draw = [&](const TsukiRenderObject &draw) {
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->pipeline);
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->layout, 0, 1, &globalDescriptor, 0, nullptr);
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->layout, 1, 1, &draw.material->descriptorSet, 0, nullptr);
@@ -1155,14 +1191,36 @@ void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer) {
         vkCmdBindIndexBuffer(commandBuffer, draw.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
         GPUDrawPushConstants pushConstants;
-        pushConstants.vertexBuffer = draw.vertexBufferAddress;
+        pushConstants.vertexBuffer = draw.vertexBufferAddress; //vertex buffer address is sent with each renderable object
         pushConstants.worldMatrix = draw.transform;
+        pushConstants.inverseTranspose = glm::mat4(glm::inverse(glm::transpose(glm::mat3(pushConstants.worldMatrix))));
         vkCmdPushConstants(commandBuffer, draw.material->pipeline->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pushConstants);
 
         vkCmdDrawIndexed(commandBuffer, draw.size, 1, draw.offset, 0, 0);
+
+        //Increment benchmarking stats
+        ++_benchmarker.numDrawCalls;
+        _benchmarker.numTriangles += draw.size / 3;
+        };
+
+    for (auto &r : _mainDrawContext.opaqueObjects) {
+        draw(r);
+    }
+
+    for (auto &r : _mainDrawContext.transparentObjects) {
+        draw(r);
     }
     
     vkCmdEndRendering(commandBuffer);
+
+    //Remove the objects we've drawn
+    _mainDrawContext.opaqueObjects.clear();
+    _mainDrawContext.transparentObjects.clear();
+
+    //Compute timing for mesh draws
+    auto end = std::chrono::system_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    _benchmarker.meshDrawTime = elapsed.count() / 1000.f;
 }
 
 void TsukiEngine::initMeshPipeline() {
