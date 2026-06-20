@@ -1,3 +1,5 @@
+#pragma once
+#include <cuda.h>
 #include <cuda_runtime.h>
 #include <iostream>
 
@@ -5,7 +7,7 @@
 	do {																																			\
 		cudaError_t err = x;																														\
 		if (err != cudaSuccess) {																													\
-			std::cerr << "CUDA error at file: " << __FILE__ << ", line: " << __LINE__ << ", error: " << cudaGetErrorString(err), err) << std::endl;	\
+			std::cerr << "CUDA error at file: " << __FILE__ << ", line: " << __LINE__ << ", error: " << cudaGetErrorString(err) << std::endl;	\
 			abort();																																\
 		}																																			\
 	} while (0)

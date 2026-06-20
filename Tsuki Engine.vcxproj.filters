@@ -69,6 +69,9 @@
     <ClCompile Include="t_input.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="t_interop.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="t_engine.h">
@@ -98,6 +101,12 @@
     <ClInclude Include="t_input.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="t_pathtrace.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="t_interop.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="README.md" />
@@ -122,5 +131,10 @@
     <None Include="t_cudacommon.h">
       <Filter>Header Files</Filter>
     </None>
+  </ItemGroup>
+  <ItemGroup>
+    <CudaCompile Include="t_pathtrace.cu">
+      <Filter>Source Files</Filter>
+    </CudaCompile>
   </ItemGroup>
 </Project>

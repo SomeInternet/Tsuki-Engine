@@ -57,6 +57,8 @@ Resources used:
 * **UPenn CIS 5650 (GPU Programming and Architecture) curriculum**
 * **VkGuide** - The engine structure is adapted from VkGuide's excellent tutorial.
 * **Vulkan Tutorial** - Used for initial VS project setup, and used for Vulkan object creation in place of `vkbootstrap`.
+* **NVIDIA Docs Cuda Programming Guide** - Used to learn about Vulkan-CUDA interop
+* **NVIDIA CUDA Samples Repo** - Used to learn about Vulkan-CUDA interop
 
 External libraries used:
 * `GLFW`

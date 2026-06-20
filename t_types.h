@@ -104,6 +104,13 @@ struct GPUMeshBuffers {
 	VkDeviceAddress vertexBufferAddress;
 };
 
+struct TsukiSubMeshSpan {
+	uint32_t indexStart;
+	uint32_t indexEnd;
+	uint32_t vertexStart;
+	uint32_t vertexEnd;
+};
+
 struct GPUDrawPushConstants {
 	glm::mat4 worldMatrix;
 	glm::mat4 inverseTranspose;

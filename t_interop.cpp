@@ -1,0 +1,69 @@
+#include "t_cudacommon.h"
+#include "t_interop.h"
+#include "t_engine.h"
+
+//From (https://github.com/NVIDIA/cuda-samples/blob/master/cpp/5_Domain_Specific/vulkanImageCUDA/vulkanImageCUDA.cu)
+
+//TODO: Understand what this is doing lol
+HANDLE tsukiutil::getVkSemaphoreHandle(TsukiEngine *engine, VkSemaphore &semaphore) {
+	//https://github.com/NVIDIA/cuda-samples/blob/master/cpp/5_Domain_Specific/simpleVulkan/VulkanBaseApp.cpp : getSemaphoreHandle
+	//NOTE: HANDLE is a Windows OS-level pointer to an existing Vulkan semaphore. It's also an alias for a void *
+	HANDLE handle;
+
+	//Configure a request to the kernel to extract the pointer for the resource and wrap it in a handle that other APIs can use
+	VkSemaphoreGetWin32HandleInfoKHR semaphoreGetHandleInfo{};
+	semaphoreGetHandleInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR;
+	semaphoreGetHandleInfo.pNext = nullptr;
+	semaphoreGetHandleInfo.semaphore = semaphore;
+	semaphoreGetHandleInfo.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+
+	//Get a pointer to the platform-specific memory address of the function
+	PFN_vkGetSemaphoreWin32HandleKHR getSemaphoreHandleFun{};
+	getSemaphoreHandleFun = (PFN_vkGetSemaphoreWin32HandleKHR)vkGetDeviceProcAddr(engine->_device, "vkGetSemaphoreWin32HandleKHR");
+	if (!getSemaphoreHandleFun) {
+		std::cerr << "Failed to retrieve vkGetMemoryWin32HandleKHR!" << std::endl;
+		abort();
+	}
+	if (getSemaphoreHandleFun(engine->_device, &semaphoreGetHandleInfo, &handle) != VK_SUCCESS) {
+		std::cerr << "Failed to retrieve handle!" << std::endl;
+		abort();
+	}
+
+	return handle;
+}
+
+HANDLE tsukiutil::getVkMemoryHandle(VkDeviceMemory &memory) {
+}
+
+//TODO: Pretty sure I don't need handle type because I'm not making this platform agnostic...
+//I also need to make sure I create the proper semaphores with export capabilities
+void tsukiutil::getCudaSemaphore(TsukiEngine *engine, cudaExternalSemaphore_t &cudaSemaphore, VkSemaphore &vkSemaphore) {
+	//https://github.com/NVIDIA/cuda-samples/blob/master/cpp/5_Domain_Specific/simpleVulkan/main.cpp : importCudaExternalSemaphore
+
+	//cudaExternalSemaphoreHandleDesc is a struct telling CUDA about the external resource we're importing
+	cudaExternalSemaphoreHandleDesc externalSemaphoreHandleDesc{};
+	
+	externalSemaphoreHandleDesc.type = cudaExternalSemaphoreHandleTypeOpaqueWin32;
+	externalSemaphoreHandleDesc.handle.win32.handle = getVkSemaphoreHandle(engine, vkSemaphore);
+	externalSemaphoreHandleDesc.flags = 0;
+
+	CUDA_CHECK(cudaImportExternalSemaphore(&cudaSemaphore, &externalSemaphoreHandleDesc));
+}
+
+//NOTE: cudaExternalMemory_t is a tracking object for GPU memory. So this function essentially allows us to register a portion of memory with CUDA
+void tsukiutil::getCudaExternalMemory(void **devicePointer, cudaExternalMemory_t &cudaMemory, VkDeviceMemory &vkMemory, VkDeviceSize size) {
+	//Under importCudaExternalMemory
+	
+	cudaExternalMemoryHandleDesc externalMemoryHandleDesc{};
+
+	externalMemoryHandleDesc.type = cudaExternalMemoryHandleTypeOpaqueWin32;
+	externalMemoryHandleDesc.size = size;
+	externalMemoryHandleDesc.handle.win32.handle = (HANDLE)getVkMemoryHandle(vkMemory);
+	CUDA_CHECK(cudaImportExternalMemory(&cudaMemory, &externalMemoryHandleDesc));
+
+	cudaExternalMemoryBufferDesc externalMemoryBufferDesc{};
+	externalMemoryBufferDesc.offset = 0;
+	externalMemoryBufferDesc.size = size;
+	externalMemoryBufferDesc.flags = 0;
+	CUDA_CHECK(cudaExternalMemoryGetMappedBuffer(devicePointer, cudaMemory, &externalMemoryBufferDesc));
+}

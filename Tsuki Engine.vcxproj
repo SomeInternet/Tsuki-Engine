@@ -148,7 +148,9 @@
     <ClInclude Include="t_images.h" />
     <ClInclude Include="t_initializers.h" />
     <ClInclude Include="t_input.h" />
+    <ClInclude Include="t_interop.h" />
     <ClInclude Include="t_loader.h" />
+    <ClInclude Include="t_pathtrace.h" />
     <ClInclude Include="t_pipelines.h" />
     <ClInclude Include="t_types.h" />
   </ItemGroup>
@@ -167,6 +169,7 @@
     <ClCompile Include="t_images.cpp" />
     <ClCompile Include="t_initializers.cpp" />
     <ClCompile Include="t_input.cpp" />
+    <ClCompile Include="t_interop.cpp" />
     <ClCompile Include="t_loader.cpp" />
     <ClCompile Include="t_pipelines.cpp" />
   </ItemGroup>
@@ -179,6 +182,9 @@
     <None Include="Shaders\gradient.slang" />
     <None Include="Shaders\meshshader.slang" />
     <None Include="Shaders\triangle.slang" />
+  </ItemGroup>
+  <ItemGroup>
+    <CudaCompile Include="t_pathtrace.cu" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

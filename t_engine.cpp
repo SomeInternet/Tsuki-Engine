@@ -388,7 +388,7 @@ void TsukiEngine::run() {
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
 
-            if (ImGui::Begin("background")) {
+            if (ImGui::Begin("Background")) {
                 ImGui::SliderFloat("Render Scale",&renderScale, 0.3f, 1.f);
 
                 ComputeEffect &selected = backgroundEffects[currBackgroundEffect];
@@ -1086,7 +1086,7 @@ void TsukiEngine::initTrianglePipeline() {
     pipelineBuilder.setShaders(triangleShader, triangleShader, "vertMain", "fragMain");
     pipelineBuilder.setInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST); //Draw triangles
     pipelineBuilder.setPolygonMode(VK_POLYGON_MODE_FILL);
-    pipelineBuilder.setCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+    pipelineBuilder.setCullMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
     pipelineBuilder.setMultisamplingNone();
     pipelineBuilder.disableBlending();
     pipelineBuilder.disableDepthTest();

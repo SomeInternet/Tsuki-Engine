@@ -244,6 +244,8 @@ public:
 	//===================================================================================================================
 	GPUMeshBuffers uploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
 
+	GPUMeshBuffers uploadMeshCoherent(std::span<uint32_t> indices, std::span<Vertex> vertices);
+
 private:
 
 	//PRIVATE HELPERS

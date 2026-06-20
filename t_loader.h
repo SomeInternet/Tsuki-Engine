@@ -68,6 +68,8 @@ namespace tsukiutil {
 
 	std::optional<std::shared_ptr<TsukiGLTF>> loadGltf2(TsukiEngine *engine, std::filesystem::path filePath);
 
+	std::optional<std::shared_ptr<TsukiGLTF>> loadGltf3(TsukiEngine *engine, std::filesystem::path filePath);
+
 	std::optional<AllocatedImage> loadGltfImage(TsukiEngine *engine, fastgltf::Asset &asset, fastgltf::Image &image);
 
 	//GLTF LOADING HELPERS

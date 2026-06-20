@@ -11,6 +11,8 @@
 void TsukiInput::keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods) {
 	TsukiInput &input = reinterpret_cast<TsukiEngine *>(glfwGetWindowUserPointer(window))->input;
 
+	//TODO: process key inputs
+
 	ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
 }
 

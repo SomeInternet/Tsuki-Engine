@@ -74,9 +74,9 @@ float4 fragMain(VSOutput fsInput) : SV_Target {
     float3 camPos = mul(sceneData.view, float4(0, 0, 0, 1)).xyz;
 
     float lambertian = max(dot(normalize(fsInput.normal), normalize(sceneData.camPos - fsInput.worldPos)), sceneData.ambient);
-    float3 color = mul(fsInput.color, colorTexture.Sample(fsInput.uv).rgb);
+    float3 color = fsInput.color * colorTexture.Sample(fsInput.uv).rgb;
 
     //return float4(fsInput.normal, 1);
     //return float4(fsInput.color, 1);
-    return float4(float3(lambertian), 1);
+    return float4(lambertian * color, 1);
 }
