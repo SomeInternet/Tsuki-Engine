@@ -13,6 +13,7 @@
 #include "t_types.h"
 #include "t_images.h"
 #include "t_pipelines.h"
+#include "t_pathtrace.h"
 
 #include "imgui.h"
 #include "backends/imgui_impl_glfw.h"
@@ -203,7 +204,6 @@ void TsukiEngine::init() {
     initDescriptors();
 
     initPipelines();
-    initTrianglePipeline();
     initMeshPipeline();
 
     initDefaultMeshData();
@@ -267,20 +267,6 @@ void TsukiEngine::cleanup() {
 }
 
 void TsukiEngine::draw() {
-	//GENERAL STRUCTURE (AS OF CHAPTER 2)
-    //Wait for current frame to finish rendering
-    //Grab a swapchain image
-    //Begin recording
-    //Transition image layouts for the compute pass
-    //Dispatch the compute pass
-    //Transition image layouts for the image copy (the abstraction we use enforces sequential execution via the image barrier)
-    //Copy the compute image to the swapchain image
-    //Begin the ImGUI rasterization pass
-    //Render ImGUI
-    //End the ImGUI rasterization pass
-    //Transition the swapchain image for presentation
-    //Present it
-
     updateScene();
 
     VK_CHECK(vkWaitForFences(_device, 1, &getCurrFrame()._renderFence, true, 1000000000)); //Wait for 1 fence (the fence of the current frame) for up to 1 second
@@ -301,23 +287,40 @@ void TsukiEngine::draw() {
 
     VK_CHECK(vkResetFences(_device, 1, &getCurrFrame()._renderFence)); //Reset the fence
 
+    //Launch kernel wrapper here to do CUDA test background draw
+
     _drawExtent.width = std::min(_drawImage.imageExtent.width, _swapChainExtent.width) * renderScale;
     _drawExtent.height = std::min(_drawImage.imageExtent.height, _swapChainExtent.height) * renderScale;
 
-    //Begin command buffer
+    //BEGIN COMAND BUFFER
     VkCommandBuffer commandBuffer = getCurrFrame()._mainCommandBuffer;
     VK_CHECK(vkResetCommandBuffer(commandBuffer, 0));
     VkCommandBufferBeginInfo commandBufferBeginInfo = tsukiinit::tCommandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT); //1-time command buffer (we re-record each frame)
     VK_CHECK(vkBeginCommandBuffer(commandBuffer, &commandBufferBeginInfo));
 
+    //Compute shader
+#if COMPUTE_BACKGROUND
     //Transition image to writeable format
     tsukiutil::transitionImageLayout(commandBuffer, _drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
 
-    //Compute shader
     drawBackground(commandBuffer, swapChainImageIndex);
 
     //Transition image to draw geometry
     tsukiutil::transitionImageLayout(commandBuffer, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL); //Rasterization draws are optimized on color attachment optimal
+#endif
+#if CUDA_TEST
+    //Copy CUDA compute image into draw image
+    tsukiutil::transitionImageLayout(commandBuffer, _drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    tsukiutil::copyBufferToImage(commandBuffer, _drawImage.image, cudaImageBuffer.buffer, { _drawImage.imageExtent.width, _drawImage.imageExtent.height }, 0);
+    
+    //Draw the CUDA compute background
+    tsukicudapathtrace::testImage(&cudaData, _drawImage.imageExtent.width, _drawImage.imageExtent.height);
+
+    //Transition image to draw geometry
+    tsukiutil::transitionImageLayout(commandBuffer, _drawImage.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL); //Rasterization draws are optimized on color attachment optimal
+#endif
+
+
     //Transition the depth image to a writable format
     tsukiutil::transitionImageLayout(commandBuffer, _depthImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
 
@@ -344,10 +347,25 @@ void TsukiEngine::draw() {
 
     //Submit the command buffer to the queue
     VkCommandBufferSubmitInfo commandBufferSubmitInfo = tsukiinit::tCommandBufferSubmitInfo(commandBuffer);
+#if CUDA_TEST
+    VkSemaphoreSubmitInfo waitCudaSemaphoreSubmitInfo = tsukiinit::tSemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
+        cudaRenderDoneSemaphore);
+#endif
     VkSemaphoreSubmitInfo waitSemaphoreSubmitInfo = tsukiinit::tSemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
         getCurrFrame()._swapChainSemaphore); //Wait on the swap chain semaphore to begin writing to the image (when we receive the image, it's safe to write to)
+#if CUDA_TEST
+    waitSemaphoreSubmitInfo.pNext = &waitCudaSemaphoreSubmitInfo;
+
+    //Define the submit info for the CUDA signal semaphore
+    //TODO: Optimize
+    VkSemaphoreSubmitInfo signalCudaSemaphoreSubmitInfo = tsukiinit::tSemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+        cudaWriteToBufferSemaphore);
+#endif
     VkSemaphoreSubmitInfo signalSemaphoreSubmitInfo = tsukiinit::tSemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, 
         _renderSemaphores[swapChainImageIndex]); //Signal that rendering is complete afterwards (we can now present)
+#if CUDA_TEST
+    signalSemaphoreSubmitInfo.pNext = &signalCudaSemaphoreSubmitInfo;
+#endif
     VkSubmitInfo2 submit = tsukiinit::tSubmitInfo(&commandBufferSubmitInfo, &signalSemaphoreSubmitInfo, &waitSemaphoreSubmitInfo);
     VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submit, getCurrFrame()._renderFence));
 
@@ -429,13 +447,15 @@ void TsukiEngine::run() {
 //===================================================================================================================
 void TsukiEngine::drawBackground(VkCommandBuffer commandBuffer, uint32_t swapChainImageIndex) {
     //Clear the image color
-    //VkClearColorValue clearValue;
-    //float flash = std::abs(std::sin(_frameNum / 120.f));
-    //clearValue = { { 0.0f, 0.0f, flash, 1.0f } };
-    //VkImageSubresourceRange clearRange = tsukiinit::tImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
-    //vkCmdClearColorImage(commandBuffer, _swapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
+#if CLEAR_VALUE
+    VkClearColorValue clearValue;
+    clearValue = { { .2f, .2f, .2f, 1.0f } };
+    VkImageSubresourceRange clearRange = tsukiinit::tImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
+    vkCmdClearColorImage(commandBuffer, _swapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
+#endif
 
     //Pick the pipeline to bind based on the selected effect in IMGUI
+#if COMPUTE_BACKGROUND
     ComputeEffect &effect = backgroundEffects[currBackgroundEffect];
 
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, effect.pipeline);
@@ -450,6 +470,10 @@ void TsukiEngine::drawBackground(VkCommandBuffer commandBuffer, uint32_t swapCha
 
     //Dispatch
     vkCmdDispatch(commandBuffer, std::ceil(_drawExtent.width / 16.f), std::ceil(_drawExtent.height / 16.f), 1); //Like a kernel launch
+#endif
+
+#if CUDA_TEST
+#endif
 }
 
 void TsukiEngine::immediateSubmit(std::function<void(VkCommandBuffer commandBuffer)> &&function) {
@@ -752,6 +776,27 @@ void TsukiEngine::initSyncStructures() {
         VK_CHECK(vkCreateFence(_device, &fenceCreateInfo, nullptr, &_frames[i]._renderFence));
     }
 
+    //Initialize structs to export semaphores from Vulkan to CUDA
+    VkSemaphoreTypeCreateInfo semaphoreTypeInfo{};
+    semaphoreTypeInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
+    semaphoreTypeInfo.semaphoreType = VK_SEMAPHORE_TYPE_BINARY;
+
+    VkExportSemaphoreCreateInfo exportSemaphoreInfo{};
+    exportSemaphoreInfo.sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO;
+    exportSemaphoreInfo.pNext = &semaphoreTypeInfo;
+    exportSemaphoreInfo.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+
+    semaphoreCreateInfo.pNext = &exportSemaphoreInfo;
+
+    VK_CHECK(vkCreateSemaphore(_device, &semaphoreCreateInfo, nullptr, &cudaWriteToBufferSemaphore));
+    VK_CHECK(vkCreateSemaphore(_device, &semaphoreCreateInfo, nullptr, &cudaRenderDoneSemaphore));
+
+    //Push deletion to the main deletion queue
+    _mainDeletionQueue.push([=]() {
+        vkDestroySemaphore(_device, cudaWriteToBufferSemaphore, nullptr);
+        vkDestroySemaphore(_device, cudaRenderDoneSemaphore, nullptr);
+        });
+
     //Initialize immediate submit
     VK_CHECK(vkCreateFence(_device, &fenceCreateInfo, nullptr, &_immFence));
 
@@ -1005,6 +1050,24 @@ void TsukiEngine::initBackgroundPipelines() { //TODO: Just copy this over to ini
     metallicRoughnessMaterial.buildPipelines(this);
 }
 
+void TsukiEngine::initCudaData() {
+    //Allocate device buffer for CUDA draws
+
+    int imageBufferSize = _drawExtent.width * _drawExtent.height * sizeof(glm::vec4);
+    cudaImageBuffer = createBuffer(imageBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+    cudaData.imageBufferSize = imageBufferSize;
+
+    //Get the VkDeviceAddress of the allocated image buffer
+    VkBufferDeviceAddressInfo deviceAddressInfo{};
+    deviceAddressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+    deviceAddressInfo.buffer = cudaImageBuffer.buffer;
+
+    cudaData.imageBufferAddress = vkGetBufferDeviceAddress(_device, &deviceAddressInfo);
+
+    //The CUDA vertex buffer and index buffer will be populated when a glTF is loaded
+    
+}
+
 void TsukiEngine::initImgui() { //TODO
     //Create descriptor pool for IMGUI
     //TODO: Optimize (?)
@@ -1071,39 +1134,6 @@ void TsukiEngine::drawImgui(VkCommandBuffer commandBuffer, VkImageView targetIma
     vkCmdEndRendering(commandBuffer);
 }
 
-//Chapter 3
-void TsukiEngine::initTrianglePipeline() {
-    VkShaderModule triangleShader;
-    if (!tsukiutil::loadShaderModule("./Shaders/triangle.spv", _device, &triangleShader)) {
-        std::cerr << "Error building triangle shader" << std::endl;
-    }
-
-    VkPipelineLayoutCreateInfo pipelineLayoutInfo = tsukiinit::tPipelineLayoutCreateInfo();
-    VK_CHECK(vkCreatePipelineLayout(_device, &pipelineLayoutInfo, nullptr, &_trianglePipelineLayout));
-
-    PipelineBuilder pipelineBuilder;
-    pipelineBuilder._pipelineLayout = _trianglePipelineLayout;
-    pipelineBuilder.setShaders(triangleShader, triangleShader, "vertMain", "fragMain");
-    pipelineBuilder.setInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST); //Draw triangles
-    pipelineBuilder.setPolygonMode(VK_POLYGON_MODE_FILL);
-    pipelineBuilder.setCullMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
-    pipelineBuilder.setMultisamplingNone();
-    pipelineBuilder.disableBlending();
-    pipelineBuilder.disableDepthTest();
-
-    pipelineBuilder.setColorAttachmentFormat(_drawImage.imageFormat);
-    pipelineBuilder.setDepthFormat(_depthImage.imageFormat); //We don't have a depth attachment
-
-    _trianglePipeline = pipelineBuilder.build(_device);
-
-    vkDestroyShaderModule(_device, triangleShader, nullptr);
-
-    _mainDeletionQueue.push([&]() {
-        vkDestroyPipelineLayout(_device, _trianglePipelineLayout, nullptr);
-        vkDestroyPipeline(_device, _trianglePipeline, nullptr);
-        });
-}
-
 void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer) {
     //Benchmarking setup
     _benchmarker.numDrawCalls = 0;
@@ -1116,8 +1146,6 @@ void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer) {
 
     VkRenderingInfo renderInfo = tsukiinit::tRenderingInfo(_drawExtent, &colorAttachment, &depthAttachment);
     vkCmdBeginRendering(commandBuffer, &renderInfo);
-
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _trianglePipeline);
 
     //Dynamically set viewport and scissor
     VkViewport viewport{};
@@ -1137,13 +1165,6 @@ void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer) {
     scissor.extent.height = _drawExtent.height;
 
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-
-    vkCmdDraw(commandBuffer, 3, 1, 0, 0); //Draw 3 vertices
-
-    GPUDrawPushConstants pushConstants;
-    pushConstants.worldMatrix = glm::mat4{ 1.f };
-    pushConstants.inverseTranspose = glm::mat4{ 1.f };
-    pushConstants.vertexBuffer = rectangle.vertexBufferAddress;
 
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipeline);
 
@@ -1268,36 +1289,6 @@ void TsukiEngine::initMeshPipeline() {
 }
 
 void TsukiEngine::initDefaultMeshData() {
-    std::array<Vertex, 4> vertices;
-
-    vertices[0].pos = { 0.5,-0.5, 0 };
-    vertices[1].pos = { 0.5,0.5, 0 };
-    vertices[2].pos = { -0.5,-0.5, 0 };
-    vertices[3].pos = { -0.5,0.5, 0 };
-
-    vertices[0].color = { 0,0, 0,1 };
-    vertices[1].color = { 0.5,0.5,0.5 ,1 };
-    vertices[2].color = { 1,0, 0,1 };
-    vertices[3].color = { 0,1, 0,1 };
-
-    std::array<uint32_t, 6> indices;
-
-    indices[0] = 0;
-    indices[1] = 1;
-    indices[2] = 2;
-
-    indices[3] = 2;
-    indices[4] = 1;
-    indices[5] = 3;
-
-    rectangle = uploadMesh(indices, vertices);
-
-    //delete the rectangle data on engine shutdown
-    _mainDeletionQueue.push([&]() {
-        destroyBuffer(rectangle.indexBuffer);
-        destroyBuffer(rectangle.vertexBuffer);
-        });
-
     uint32_t white = glm::packUnorm4x8(glm::vec4(1));
     _whiteImage = createImage(reinterpret_cast<void *>(&white), VkExtent3D{ 1, 1, 1 }, VK_FORMAT_R8G8B8A8_UNORM,
         VK_IMAGE_USAGE_SAMPLED_BIT);

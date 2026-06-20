@@ -17,5 +17,5 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace tsukicudapathtrace {
-	void testImage(VkSemaphore waitSemaphore, VkSemaphore signalSemaphore, VkDeviceAddress outImage, int width, int height);
+	void testImage(TsukiCudaData *cudaData, int width, int height);
 };

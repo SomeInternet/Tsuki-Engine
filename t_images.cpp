@@ -65,3 +65,21 @@ void tsukiutil::copyImage(VkCommandBuffer commandBuffer, VkImage dst, VkImage sr
 
     vkCmdBlitImage2(commandBuffer, &blitInfo);
 }
+
+void tsukiutil::copyBufferToImage(VkCommandBuffer commandBuffer, VkImage dst, VkBuffer src, VkExtent2D dstExtent, uint32_t srcOffset) {
+
+    VkBufferImageCopy region{};
+    region.bufferOffset = srcOffset;
+    region.bufferRowLength = 0;
+    region.bufferImageHeight = 0;
+
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.mipLevel = 0;
+    region.imageSubresource.baseArrayLayer = 0;
+    region.imageSubresource.layerCount = 1;
+
+    region.imageOffset = { 0, 0, 0 };
+    region.imageExtent = { dstExtent.width, dstExtent.height, 1 };
+    
+    vkCmdCopyBufferToImage(commandBuffer, src, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+}

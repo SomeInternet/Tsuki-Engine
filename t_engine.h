@@ -4,11 +4,16 @@
 #include "t_descriptors.h"
 #include "t_input.h"
 #include "t_camera.h"
+#include "t_cudacommon.h"
 
 #include <unordered_map>
 
 #define WIDTH 1700
 #define HEIGHT 900
+
+#define CLEAR_VALUE 0
+#define COMPUTE_BACKGROUND 0
+#define CUDA_TEST 1
 
 constexpr unsigned int FRAMES_IN_FLIGHT = 2;
 
@@ -164,13 +169,8 @@ public:
 	int currBackgroundEffect{ 0 };
 
 	//Chapter 3
-	VkPipelineLayout _trianglePipelineLayout;
-	VkPipeline _trianglePipeline;
-
 	VkPipelineLayout _meshPipelineLayout;
 	VkPipeline _meshPipeline;
-
-	GPUMeshBuffers rectangle;
 
 	std::vector<std::shared_ptr<Mesh>> testMeshes;
 
@@ -203,6 +203,12 @@ public:
 
 	Benchmarker _benchmarker;
 	//
+
+	//CUDA INTEROP
+	AllocatedBuffer cudaImageBuffer;
+	VkSemaphore cudaWriteToBufferSemaphore;
+	VkSemaphore cudaRenderDoneSemaphore;
+	TsukiCudaData cudaData;
 
 	//IMGUI
 	VkFence _immFence;
@@ -264,11 +270,12 @@ private:
 	void initPipelines();
 	void initBackgroundPipelines();
 
+	void initCudaData();
+
 	void initImgui();
 	void drawImgui(VkCommandBuffer commandBuffer, VkImageView targetImageView);
 
 	//Chapter 3
-	void initTrianglePipeline();
 	void drawGeometry(VkCommandBuffer commandBuffer);
 
 	void initMeshPipeline();
