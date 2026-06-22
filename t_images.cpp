@@ -68,11 +68,13 @@ void tsukiutil::copyImage(VkCommandBuffer commandBuffer, VkImage dst, VkImage sr
 
 void tsukiutil::copyBufferToImage(VkCommandBuffer commandBuffer, VkImage dst, VkBuffer src, VkExtent2D dstExtent, uint32_t srcOffset) {
 
+    //Tightly packed rows
     VkBufferImageCopy region{};
     region.bufferOffset = srcOffset;
     region.bufferRowLength = 0;
     region.bufferImageHeight = 0;
 
+    //Tells Vulkan about the image side. Vulkan already knows information about the image through te VkImage. So it performs an ""exact"" copy
     region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     region.imageSubresource.mipLevel = 0;
     region.imageSubresource.baseArrayLayer = 0;

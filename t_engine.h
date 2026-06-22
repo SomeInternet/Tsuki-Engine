@@ -17,6 +17,22 @@
 
 constexpr unsigned int FRAMES_IN_FLIGHT = 2;
 
+//WINDOWS SECURITY ATTRIBUTES
+//===================================================================================================================
+class WindowsSecurityAttributes
+{
+protected:
+	SECURITY_ATTRIBUTES  m_winSecurityAttributes;
+	PSECURITY_DESCRIPTOR m_winPSecurityDescriptor;
+
+public:
+	WindowsSecurityAttributes();
+	SECURITY_ATTRIBUTES *operator&();
+	~WindowsSecurityAttributes();
+};
+
+//ACTUAL GPU STUFF
+//===================================================================================================================
 struct ComputePushConstants { //TODO: Check device specs to see limits of how much can be pushed
 	glm::vec4 data1;
 	glm::vec4 data2;
@@ -172,8 +188,6 @@ public:
 	VkPipelineLayout _meshPipelineLayout;
 	VkPipeline _meshPipeline;
 
-	std::vector<std::shared_ptr<Mesh>> testMeshes;
-
 	AllocatedImage _depthImage;
 	//
 
@@ -205,6 +219,8 @@ public:
 	//
 
 	//CUDA INTEROP
+	VmaPool _vmaExternalPool; //Pool for allocating memory that will be exported
+
 	AllocatedBuffer cudaImageBuffer;
 	VkSemaphore cudaWriteToBufferSemaphore;
 	VkSemaphore cudaRenderDoneSemaphore;
@@ -244,6 +260,7 @@ public:
 
 	//TODO: Move this elswhere?
 	AllocatedBuffer createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
+	AllocatedBuffer createExternalBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 	void destroyBuffer(const AllocatedBuffer &buffer);
 
 	//MESH HELPERS

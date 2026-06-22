@@ -11,7 +11,7 @@ __global__ void kernTestImage(glm::vec4 *outImage, int width, int height) {
 
 	outColor.r = (float)(threadX) / (float)(width);
 	outColor.g = (float)(threadY) / (float)(height);
-	outColor.b = 1;
+	outColor.b = 0.f;
 	outColor.a = 1;
 
 	outImage[threadY * width + threadX] = outColor;
@@ -28,7 +28,7 @@ void tsukicudapathtrace::testImage(TsukiCudaData *cudaData, int width, int heigh
 	TsukiLaunchDims dims;
 	dims.gridDim = dim3(divup(width, BLOCKWIDTH), divup(height, BLOCKHEIGHT), 1);
 	dims.blockDim = dim3(BLOCKWIDTH, BLOCKHEIGHT, 1);
-	kernTestImage << <dims.gridDim, dims.blockDim >> > (reinterpret_cast<glm::vec4 *>(cudaData->imageBufferAddress), width, height);
+	kernTestImage << <dims.gridDim, dims.blockDim >> > (reinterpret_cast<glm::vec4 *>(cudaData->imageBuffer), width, height);
 
 	//TODO: Signal external semaphore
 	cudaExternalSemaphoreSignalParams signalParams{};

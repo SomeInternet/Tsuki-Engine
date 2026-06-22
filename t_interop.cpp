@@ -24,16 +24,9 @@ HANDLE tsukiutil::getVkSemaphoreHandle(TsukiEngine *engine, VkSemaphore *semapho
 		std::cerr << "Failed to retrieve vkGetMemoryWin32HandleKHR!" << std::endl;
 		abort();
 	}
-	if (getSemaphoreHandleFun(engine->_device, &semaphoreGetHandleInfo, &handle) != VK_SUCCESS) {
-		std::cerr << "Failed to retrieve handle!" << std::endl;
-		abort();
-	}
+	VK_CHECK(getSemaphoreHandleFun(engine->_device, &semaphoreGetHandleInfo, &handle));
 
 	return handle;
-}
-
-#if TSUKIEXTERNALMEMORY
-HANDLE tsukiutil::getVkMemoryHandle(VkDeviceMemory &memory) {
 }
 
 //TODO: Pretty sure I don't need handle type because I'm not making this platform agnostic...
@@ -51,21 +44,41 @@ void tsukiutil::getCudaSemaphore(TsukiEngine *engine, cudaExternalSemaphore_t *c
 	CUDA_CHECK(cudaImportExternalSemaphore(cudaSemaphore, &externalSemaphoreHandleDesc));
 }
 
+HANDLE tsukiutil::getVkMemoryHandle(TsukiEngine *engine, VkDeviceMemory *memory) {
+	//getMemHandle
+	HANDLE handle = 0;
+
+	VkMemoryGetWin32HandleInfoKHR memoryGetHandleInfo{};
+	memoryGetHandleInfo.sType = VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR;
+	memoryGetHandleInfo.pNext = nullptr;
+	memoryGetHandleInfo.memory = *memory;
+	memoryGetHandleInfo.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+
+	PFN_vkGetMemoryWin32HandleKHR getMemoryWin32HandleKHRFun = (PFN_vkGetMemoryWin32HandleKHR)vkGetDeviceProcAddr(engine->_device, "vkGetMemoryWin32HandleKHR");
+	if (!getMemoryWin32HandleKHRFun) {
+		std::cerr << "Failed to retrieve vkGetMemoryWin32HandleKHR!" << std::endl;
+		abort();
+	}
+
+	VK_CHECK(getMemoryWin32HandleKHRFun(engine->_device, &memoryGetHandleInfo, &handle));
+
+	return handle;
+}
+
 //NOTE: cudaExternalMemory_t is a tracking object for GPU memory. So this function essentially allows us to register a portion of memory with CUDA
-void tsukiutil::getCudaExternalMemory(void **devicePointer, cudaExternalMemory_t &cudaMemory, VkDeviceMemory &vkMemory, VkDeviceSize size) {
+void tsukiutil::getCudaExternalMemory(TsukiEngine *engine, void **devicePointer, cudaExternalMemory_t *cudaMemory, VkDeviceMemory *vkMemory, VkDeviceSize size) {
 	//Under importCudaExternalMemory
 	
 	cudaExternalMemoryHandleDesc externalMemoryHandleDesc{};
 
 	externalMemoryHandleDesc.type = cudaExternalMemoryHandleTypeOpaqueWin32;
 	externalMemoryHandleDesc.size = size;
-	externalMemoryHandleDesc.handle.win32.handle = (HANDLE)getVkMemoryHandle(vkMemory);
-	CUDA_CHECK(cudaImportExternalMemory(&cudaMemory, &externalMemoryHandleDesc));
+	externalMemoryHandleDesc.handle.win32.handle = (HANDLE)getVkMemoryHandle(engine, vkMemory);
+	CUDA_CHECK(cudaImportExternalMemory(cudaMemory, &externalMemoryHandleDesc));
 
 	cudaExternalMemoryBufferDesc externalMemoryBufferDesc{};
 	externalMemoryBufferDesc.offset = 0;
 	externalMemoryBufferDesc.size = size;
 	externalMemoryBufferDesc.flags = 0;
-	CUDA_CHECK(cudaExternalMemoryGetMappedBuffer(devicePointer, cudaMemory, &externalMemoryBufferDesc));
+	CUDA_CHECK(cudaExternalMemoryGetMappedBuffer(devicePointer, *cudaMemory, &externalMemoryBufferDesc));
 }
-#endif

@@ -13,11 +13,17 @@
 #include "t_types.h"
 #include "t_images.h"
 #include "t_pipelines.h"
+#include "t_interop.h"
 #include "t_pathtrace.h"
 
 #include "imgui.h"
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_vulkan.h"
+
+//Windows includes
+#include <VersionHelpers.h>
+#include <aclapi.h>
+#include <dxgi1_2.h>
 
 #if _DEBUG
 constexpr bool enableValidationLayers = true;
@@ -56,6 +62,58 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     }
 
     return VK_FALSE;
+}
+
+//WINDOWS SECURITY ATTRIBUTES
+//===================================================================================================================
+//TODO: Understand what these do
+WindowsSecurityAttributes::WindowsSecurityAttributes()
+{
+    m_winPSecurityDescriptor = (PSECURITY_DESCRIPTOR)calloc(1, SECURITY_DESCRIPTOR_MIN_LENGTH + 2 * sizeof(void **));
+    if (!m_winPSecurityDescriptor) {
+        throw std::runtime_error("Failed to allocate memory for security descriptor");
+    }
+
+    PSID *ppSID = (PSID *)((PBYTE)m_winPSecurityDescriptor + SECURITY_DESCRIPTOR_MIN_LENGTH);
+    PACL *ppACL = (PACL *)((PBYTE)ppSID + sizeof(PSID *));
+
+    InitializeSecurityDescriptor(m_winPSecurityDescriptor, SECURITY_DESCRIPTOR_REVISION);
+
+    SID_IDENTIFIER_AUTHORITY sidIdentifierAuthority = SECURITY_WORLD_SID_AUTHORITY;
+    AllocateAndInitializeSid(&sidIdentifierAuthority, 1, SECURITY_WORLD_RID, 0, 0, 0, 0, 0, 0, 0, ppSID);
+
+    EXPLICIT_ACCESS explicitAccess;
+    ZeroMemory(&explicitAccess, sizeof(EXPLICIT_ACCESS));
+    explicitAccess.grfAccessPermissions = STANDARD_RIGHTS_ALL | SPECIFIC_RIGHTS_ALL;
+    explicitAccess.grfAccessMode = SET_ACCESS;
+    explicitAccess.grfInheritance = INHERIT_ONLY;
+    explicitAccess.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+    explicitAccess.Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
+    explicitAccess.Trustee.ptstrName = (LPTSTR)*ppSID;
+
+    SetEntriesInAcl(1, &explicitAccess, NULL, ppACL);
+
+    SetSecurityDescriptorDacl(m_winPSecurityDescriptor, TRUE, *ppACL, FALSE);
+
+    m_winSecurityAttributes.nLength = sizeof(m_winSecurityAttributes);
+    m_winSecurityAttributes.lpSecurityDescriptor = m_winPSecurityDescriptor;
+    m_winSecurityAttributes.bInheritHandle = TRUE;
+}
+
+SECURITY_ATTRIBUTES *WindowsSecurityAttributes::operator&() { return &m_winSecurityAttributes; }
+
+WindowsSecurityAttributes::~WindowsSecurityAttributes()
+{
+    PSID *ppSID = (PSID *)((PBYTE)m_winPSecurityDescriptor + SECURITY_DESCRIPTOR_MIN_LENGTH);
+    PACL *ppACL = (PACL *)((PBYTE)ppSID + sizeof(PSID *));
+
+    if (*ppSID) {
+        FreeSid(*ppSID);
+    }
+    if (*ppACL) {
+        LocalFree(*ppACL);
+    }
+    free(m_winPSecurityDescriptor);
 }
 
 //MATERIALS
@@ -208,6 +266,8 @@ void TsukiEngine::init() {
 
     initDefaultMeshData();
 
+    initCudaData();
+
     initImgui();
     
     //Load the Cornell Box scene
@@ -234,11 +294,6 @@ void TsukiEngine::cleanup() {
             vkDestroySemaphore(_device, _frames[i]._swapChainSemaphore, nullptr);
 
             _frames[i]._deletionQueue.flush();
-        }
-
-        for (auto &mesh : testMeshes) {
-            destroyBuffer(mesh->meshBuffers.indexBuffer);
-            destroyBuffer(mesh->meshBuffers.vertexBuffer);
         }
 
         metallicRoughnessMaterial.clearResources(_device);
@@ -286,8 +341,6 @@ void TsukiEngine::draw() {
     }
 
     VK_CHECK(vkResetFences(_device, 1, &getCurrFrame()._renderFence)); //Reset the fence
-
-    //Launch kernel wrapper here to do CUDA test background draw
 
     _drawExtent.width = std::min(_drawImage.imageExtent.width, _swapChainExtent.width) * renderScale;
     _drawExtent.height = std::min(_drawImage.imageExtent.height, _swapChainExtent.height) * renderScale;
@@ -608,6 +661,42 @@ AllocatedBuffer TsukiEngine::createBuffer(size_t allocSize, VkBufferUsageFlags u
     return newBuffer;
 }
 
+AllocatedBuffer TsukiEngine::createExternalBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage) {
+    VkExternalMemoryBufferCreateInfo externalBufferInfo{};
+    externalBufferInfo.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
+    externalBufferInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.pNext = &externalBufferInfo;
+    bufferInfo.size = allocSize;
+    bufferInfo.usage = usage;
+
+    WindowsSecurityAttributes windowsSecurityAttributes;
+
+    VkExportMemoryWin32HandleInfoKHR vulkanExportMemoryHandleInfo{};
+    vulkanExportMemoryHandleInfo.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_WIN32_HANDLE_INFO_KHR;
+    vulkanExportMemoryHandleInfo.pNext = nullptr;
+    vulkanExportMemoryHandleInfo.pAttributes = &windowsSecurityAttributes;
+    vulkanExportMemoryHandleInfo.dwAccess = DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE;
+    vulkanExportMemoryHandleInfo.name = (LPCWSTR)NULL;
+
+    VkExportMemoryAllocateInfo exportMemoryAllocInfo{};
+    exportMemoryAllocInfo.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO;
+    exportMemoryAllocInfo.pNext = &vulkanExportMemoryHandleInfo;
+    exportMemoryAllocInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+
+    VmaAllocationCreateInfo vmaAllocInfo{};
+    vmaAllocInfo.usage = memoryUsage; //The usage flags influences where VMA places our buffer
+    vmaAllocInfo.pool = _vmaExternalPool;
+
+    AllocatedBuffer newBuffer;
+
+    VK_CHECK(vmaCreateBuffer(_allocator, &bufferInfo, &vmaAllocInfo, &newBuffer.buffer, &newBuffer.allocation, &newBuffer.info));
+
+    return newBuffer;
+}
+
 void TsukiEngine::destroyBuffer(const AllocatedBuffer &buffer) {
     vmaDestroyBuffer(_allocator, buffer.buffer, buffer.allocation);
 }
@@ -687,7 +776,7 @@ void TsukiEngine::initSwapChain() { //NOTE: Watch out for window resizes later..
 
     //
     VkExtent3D drawImageExtent = { _windowExtent.width, _windowExtent.height, 1 };
-    _drawImage.imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+    _drawImage.imageFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
     _drawImage.imageExtent = drawImageExtent;
 
     VkImageUsageFlags drawImageUsages = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
@@ -790,6 +879,10 @@ void TsukiEngine::initSyncStructures() {
 
     VK_CHECK(vkCreateSemaphore(_device, &semaphoreCreateInfo, nullptr, &cudaWriteToBufferSemaphore));
     VK_CHECK(vkCreateSemaphore(_device, &semaphoreCreateInfo, nullptr, &cudaRenderDoneSemaphore));
+
+    //Run interop functions to populate the CUDA external semaphores in cudaData
+    tsukiutil::getCudaSemaphore(this, &(cudaData._cudaCopyFinishedSemaphore), &cudaWriteToBufferSemaphore);
+    tsukiutil::getCudaSemaphore(this, &(cudaData._cudaSampleFinishedSemaphore), &cudaRenderDoneSemaphore);
 
     //Push deletion to the main deletion queue
     _mainDeletionQueue.push([=]() {
@@ -1051,18 +1144,49 @@ void TsukiEngine::initBackgroundPipelines() { //TODO: Just copy this over to ini
 }
 
 void TsukiEngine::initCudaData() {
+    //TODO: Create a dedicated VMA pool for external CUDA buffers
+    VkExportMemoryAllocateInfo exportInfo{};
+    exportInfo.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO;
+    exportInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+
+    VkBufferCreateInfo tempBufferInfo{};
+    tempBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    tempBufferInfo.pNext = nullptr;
+    tempBufferInfo.size = 1024; //Dummy value
+    tempBufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | 
+        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+
+    VmaAllocationCreateInfo tempAllocInfo{};
+    tempAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+    uint32_t memoryTypeIndex{ 0 };
+    vmaFindMemoryTypeIndexForBufferInfo(_allocator, &tempBufferInfo, &tempAllocInfo, &memoryTypeIndex);
+
+    VmaPoolCreateInfo poolCreateInfo{};
+    poolCreateInfo.memoryTypeIndex = memoryTypeIndex;
+    poolCreateInfo.pMemoryAllocateNext = &exportInfo;
+
+    VK_CHECK(vmaCreatePool(_allocator, &poolCreateInfo, &_vmaExternalPool));
+
     //Allocate device buffer for CUDA draws
 
-    int imageBufferSize = _drawExtent.width * _drawExtent.height * sizeof(glm::vec4);
-    cudaImageBuffer = createBuffer(imageBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+    int imageBufferSize = WIDTH * HEIGHT * sizeof(glm::vec4);
+    std::cerr << "Creating CUDA image buffer, size: " << imageBufferSize << std::endl;
+    cudaImageBuffer = createExternalBuffer(imageBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
     cudaData.imageBufferSize = imageBufferSize;
 
-    //Get the VkDeviceAddress of the allocated image buffer
+    //Register the cuda image buffer's memory with CUDA
+    VmaAllocationInfo cudaImageBufferAllocInfo{};
+    vmaGetAllocationInfo(_allocator, cudaImageBuffer.allocation, &cudaImageBufferAllocInfo);
+
+
     VkBufferDeviceAddressInfo deviceAddressInfo{};
     deviceAddressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
     deviceAddressInfo.buffer = cudaImageBuffer.buffer;
 
-    cudaData.imageBufferAddress = vkGetBufferDeviceAddress(_device, &deviceAddressInfo);
+    //TODO: Remove excess code
+    //cudaData.imageBufferAddress = vkGetBufferDeviceAddress(_device, &deviceAddressInfo);
+    tsukiutil::getCudaExternalMemory(this, &(cudaData.imageBuffer), &(cudaData.imageBufferMemory), &(cudaImageBufferAllocInfo.deviceMemory), imageBufferSize);
 
     //The CUDA vertex buffer and index buffer will be populated when a glTF is loaded
     
@@ -1333,8 +1457,6 @@ void TsukiEngine::initDefaultMeshData() {
         destroyImage(_errorCheckerboardImage);
         });
 
-    testMeshes = tsukiutil::loadGltf(this, "./Models/basicmesh.glb").value();
-
     GLTFMetallicRoughness::MaterialResources materialResources;
     materialResources.colorImage = _whiteImage;
     materialResources.colorSampler = _defaultSamplerLinear;
@@ -1357,18 +1479,6 @@ void TsukiEngine::initDefaultMeshData() {
 
     //Create a default material
     defaultData = metallicRoughnessMaterial.writeMaterial(_device, TsukiMaterialPass::TSUKI_MATERIAL_OPAQUE, materialResources, globalDescriptorAllocator);
-    for (auto &testMesh : testMeshes) {
-        std::shared_ptr<TMeshNode> newNode = std::make_shared<TMeshNode>();
-        newNode->mesh = testMesh;
-
-        newNode->localTransform = glm::mat4(1);
-        newNode->worldTransform = glm::mat4(1);
-
-        for (auto &subMesh : newNode->mesh->subMeshes) {
-            subMesh.material = std::make_shared<GLTFMaterial>(defaultData);
-        }
-        loadedNodes[testMesh->name] = std::move(newNode);
-    }
 }
 //End Chapter 3
 

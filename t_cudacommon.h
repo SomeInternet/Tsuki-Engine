@@ -26,17 +26,30 @@ struct TsukiLaunchDims {
 	dim3 blockDim;
 };
 
+struct u8vec4 {
+	uint8_t r;
+	uint8_t g;
+	uint8_t b;
+	uint8_t a;
+};
+
 struct TsukiCudaData { //TODO: This bottlenecks performance. I might wanna improve this later...
 	cudaExternalSemaphore_t _cudaSampleFinishedSemaphore;
 	cudaExternalSemaphore_t _cudaCopyFinishedSemaphore;
 
 	VkDeviceAddress imageBufferAddress;
-	int imageBufferSize;
+	cudaExternalMemory_t imageBufferMemory;
+	void *imageBuffer;
+	int imageBufferSize{ 0 };
 
 	VkDeviceAddress indexBufferAddress;
+	cudaExternalMemory_t indexBufferMemory;
+	void *indexBuffer;
 	int indexBufferSize{ 0 };
 
 	VkDeviceAddress VertexBufferAddress;
+	cudaExternalMemory_t vertexBufferMemory;
+	void *vertexBuffer;
 	int vertexBufferSize{ 0 };
 
 	bool resetImage{ false };
