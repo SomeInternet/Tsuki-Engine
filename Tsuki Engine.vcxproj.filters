@@ -39,27 +39,6 @@
     <ClCompile Include="t_pipelines.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-master\backends\imgui_impl_vulkan.cpp">
-      <Filter>ImGUI</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-master\backends\imgui_impl_glfw.cpp">
-      <Filter>ImGUI</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-master\imgui_widgets.cpp">
-      <Filter>ImGUI</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-master\imgui.cpp">
-      <Filter>ImGUI</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-master\imgui_draw.cpp">
-      <Filter>ImGUI</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-master\imgui_tables.cpp">
-      <Filter>ImGUI</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-master\imgui_demo.cpp">
-      <Filter>ImGUI</Filter>
-    </ClCompile>
     <ClCompile Include="t_loader.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -71,6 +50,27 @@
     </ClCompile>
     <ClCompile Include="t_interop.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-docking\backends\imgui_impl_vulkan.cpp">
+      <Filter>ImGUI</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-docking\imgui.cpp">
+      <Filter>ImGUI</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-docking\imgui_demo.cpp">
+      <Filter>ImGUI</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-docking\imgui_draw.cpp">
+      <Filter>ImGUI</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-docking\imgui_tables.cpp">
+      <Filter>ImGUI</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-docking\imgui_widgets.cpp">
+      <Filter>ImGUI</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-docking\backends\imgui_impl_glfw.cpp">
+      <Filter>ImGUI</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

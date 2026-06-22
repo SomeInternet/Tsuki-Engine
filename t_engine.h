@@ -290,6 +290,7 @@ private:
 	void initCudaData();
 
 	void initImgui();
+	void initImguiTheme();
 	void drawImgui(VkCommandBuffer commandBuffer, VkImageView targetImageView);
 
 	//Chapter 3

@@ -111,7 +111,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>C:\VulkanSDK\1.4.335.0\Include;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\VulkanMemoryAllocator-master\include;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\fmt-main\include;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\glm\;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\glfw-3.4.bin.WIN64\include;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-master;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\stb-master;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\fastgltf\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\VulkanSDK\1.4.335.0\Include;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\VulkanMemoryAllocator-master\include;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\fmt-main\include;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\glm\;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\glfw-3.4.bin.WIN64\include;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-docking;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\stb-master;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\fastgltf\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
@@ -130,7 +130,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>C:\VulkanSDK\1.4.335.0\Include;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\VulkanMemoryAllocator-master\include;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\fmt-main\include;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\glm\;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\glfw-3.4.bin.WIN64\include;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-master;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\stb-master;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\fastgltf\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\VulkanSDK\1.4.335.0\Include;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\VulkanMemoryAllocator-master\include;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\fmt-main\include;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\glm\;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\glfw-3.4.bin.WIN64\include;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-docking;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\stb-master;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\fastgltf\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
@@ -155,13 +155,13 @@
     <ClInclude Include="t_types.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-master\backends\imgui_impl_glfw.cpp" />
-    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-master\backends\imgui_impl_vulkan.cpp" />
-    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-master\imgui.cpp" />
-    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-master\imgui_demo.cpp" />
-    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-master\imgui_draw.cpp" />
-    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-master\imgui_tables.cpp" />
-    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-master\imgui_widgets.cpp" />
+    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-docking\backends\imgui_impl_glfw.cpp" />
+    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-docking\backends\imgui_impl_vulkan.cpp" />
+    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-docking\imgui.cpp" />
+    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-docking\imgui_demo.cpp" />
+    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-docking\imgui_draw.cpp" />
+    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-docking\imgui_tables.cpp" />
+    <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-docking\imgui_widgets.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="t_camera.cpp" />
     <ClCompile Include="t_descriptors.cpp" />
