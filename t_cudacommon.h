@@ -37,17 +37,16 @@ struct TsukiCudaData { //TODO: This bottlenecks performance. I might wanna impro
 	cudaExternalSemaphore_t _cudaSampleFinishedSemaphore;
 	cudaExternalSemaphore_t _cudaCopyFinishedSemaphore;
 
-	VkDeviceAddress imageBufferAddress;
+	cudaExternalSemaphore_t _cudaASBuildFinishedSemaphore;
+
 	cudaExternalMemory_t imageBufferMemory;
 	void *imageBuffer;
 	int imageBufferSize{ 0 };
 
-	VkDeviceAddress indexBufferAddress;
 	cudaExternalMemory_t indexBufferMemory;
 	void *indexBuffer;
 	int indexBufferSize{ 0 };
 
-	VkDeviceAddress VertexBufferAddress;
 	cudaExternalMemory_t vertexBufferMemory;
 	void *vertexBuffer;
 	int vertexBufferSize{ 0 };
@@ -55,4 +54,19 @@ struct TsukiCudaData { //TODO: This bottlenecks performance. I might wanna impro
 	bool resetImage{ false };
 
 	unsigned numSamples;
+};
+
+struct TsukiCudaMaterialData {
+	
+};
+
+struct TsukiCudaMesh {
+	int indexBufferSize{ 0 };
+	cudaExternalMemory_t indexBufferMemory;
+
+	int vertexBufferSize{ 0 };
+	cudaExternalMemory_t vertexBufferMemory;
+
+	int materialLookupBufferSize{ 0 };
+	cudaExternalMemory_t MaterialLookupBufferMemory;
 };

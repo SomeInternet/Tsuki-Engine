@@ -96,6 +96,7 @@ struct Vertex {
 	glm::vec3 normal;
 	float uvY;
 	glm::vec4 color;
+	glm::vec4 emission; //TODO: Read emission data into the vertices
 };
 
 struct GPUMeshBuffers {

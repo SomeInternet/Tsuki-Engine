@@ -19,6 +19,7 @@ struct Vertex {
     float3 normal;
     float uvY;
     float4 color;
+    float4 emission;
 };
 
 struct PushConstants {
@@ -33,6 +34,7 @@ struct VSOutput {
     float3 normal;
     float3 color;
     float2 uv;
+    float4 emission;
 };
 
 //Slang will attempt to pack loose global structures together
@@ -65,6 +67,7 @@ VSOutput vertMain(uint index: SV_VertexID) {
     vsOutput.color = gltfMaterialData.colorFac.rgb;
     vsOutput.uv.x = v.uvX;
     vsOutput.uv.y = v.uvY;
+    vsOutput.emission = v.emission;
 
     return vsOutput;
 }
