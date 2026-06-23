@@ -12,6 +12,9 @@ void TsukiInput::keyCallback(GLFWwindow *window, int key, int scancode, int acti
 	TsukiInput &input = reinterpret_cast<TsukiEngine *>(glfwGetWindowUserPointer(window))->input;
 
 	//TODO: process key inputs
+	if (key == GLFW_KEY_RIGHT_SHIFT) {
+		if (action == GLFW_PRESS) { input.cameraLocked = !input.cameraLocked; }
+	}
 
 	ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
 }
@@ -46,22 +49,24 @@ void TsukiInput::cursorPosCallback(GLFWwindow *window, double xPos, double yPos)
 	float deltaX = static_cast<float>(input.prevXPos - xPos);
 	float deltaY = static_cast<float>(input.prevYPos - yPos);
 
-	if (input.mouseLeftHeld) {
-		camera.rotDirty = true;
-		camera.viewDirty = true;
-		camera.theta = glm::clamp(camera.theta + deltaY * camera.sensitivity, -PI / 2 + EPSILON, PI / 2 - EPSILON);
-		camera.phi = camera.phi + deltaX * camera.sensitivity;
+	if (!input.cameraLocked) {
+		if (input.mouseLeftHeld) {
+			camera.rotDirty = true;
+			camera.viewDirty = true;
+			camera.theta = glm::clamp(camera.theta + deltaY * camera.sensitivity, -PI / 2 + EPSILON, PI / 2 - EPSILON);
+			camera.phi = camera.phi + deltaX * camera.sensitivity;
+		}
+
+		if (input.mouseRightHeld) {
+			camera.viewDirty = true;
+
+			glm::vec3 right = glm::transpose(glm::mat3(camera.getRot())) * glm::vec3(1, 0, 0);
+			glm::vec3 up = glm::transpose(glm::mat3(camera.getRot())) * glm::vec3(0, 1, 0);
+
+			camera.origin += camera.sensitivity * (deltaX * right - deltaY * up);
+		}
 	}
-
-	if (input.mouseRightHeld) {
-		camera.viewDirty = true;
-
-		glm::vec3 right = glm::transpose(glm::mat3(camera.getRot())) * glm::vec3(1, 0, 0);
-		glm::vec3 up = glm::transpose(glm::mat3(camera.getRot())) * glm::vec3(0, 1, 0);
-
-		camera.origin += camera.sensitivity * (deltaX * right - deltaY * up);
-	}
-
+	
 	input.prevXPos = xPos;
 	input.prevYPos = yPos;
 
@@ -72,8 +77,10 @@ void TsukiInput::scrollCallback(GLFWwindow *window, double xOffset, double yOffs
 	TsukiInput &input = reinterpret_cast<TsukiEngine *>(glfwGetWindowUserPointer(window))->input;
 	TsukiCamera &camera = reinterpret_cast<TsukiEngine *>(glfwGetWindowUserPointer(window))->camera;
 
-	camera.viewDirty = true;
-	camera.radius -= static_cast<float>(yOffset) * .1f; //Zoom
+	if (!input.cameraLocked) {
+		camera.viewDirty = true;
+		camera.radius -= static_cast<float>(yOffset) * .1f; //Zoom
+	}
 
 	ImGui_ImplGlfw_ScrollCallback(window, xOffset, yOffset);
 }

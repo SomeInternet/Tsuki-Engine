@@ -2,6 +2,8 @@
 #include "t_types.h"
 
 struct TsukiInput {
+	bool cameraLocked{ false }; //Kind of a bandaid fix, but oh well...
+
 	bool firstMouse{ true };
 
 	bool mouseLeftHeld{ false };
