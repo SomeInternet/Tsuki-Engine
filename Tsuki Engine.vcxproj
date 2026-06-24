@@ -150,6 +150,7 @@
     <ClInclude Include="t_input.h" />
     <ClInclude Include="t_interop.h" />
     <ClInclude Include="t_loader.h" />
+    <ClInclude Include="t_mesh.h" />
     <ClInclude Include="t_pathtrace.h" />
     <ClInclude Include="t_pipelines.h" />
     <ClInclude Include="t_types.h" />

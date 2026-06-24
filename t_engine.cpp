@@ -129,19 +129,14 @@ void GLTFMetallicRoughness::buildPipelines(TsukiEngine *engine) {
     matrixRange.size = sizeof(GPUDrawPushConstants);
     matrixRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 
-    //Create our descriptor set layout
-    DescriptorLayoutBuilder layoutBuilder;
-    layoutBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-    layoutBuilder.addBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-    layoutBuilder.addBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    VkDescriptorSetLayout layouts[] = {
+        engine->_sceneDataDescriptorLayout,
+        engine->_bindlessTextureDescriptorLayout,
+        engine->_perMeshDescriptorLayout
+    };
 
-    materialLayout = layoutBuilder.build(engine->_device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
-
-    VkDescriptorSetLayout layouts[] = { engine->_sceneDataDescriptorLayout, materialLayout };
-
-    //Create our pipeline layout
     VkPipelineLayoutCreateInfo meshPipelineLayoutInfo = tsukiinit::tPipelineLayoutCreateInfo();
-    meshPipelineLayoutInfo.setLayoutCount = 2;
+    meshPipelineLayoutInfo.setLayoutCount = 3;
     meshPipelineLayoutInfo.pSetLayouts = layouts;
     meshPipelineLayoutInfo.pushConstantRangeCount = 1;
     meshPipelineLayoutInfo.pPushConstantRanges = &matrixRange;
@@ -167,62 +162,35 @@ void GLTFMetallicRoughness::buildPipelines(TsukiEngine *engine) {
 
     opaquePipeline.pipeline = pipelineBuilder.build(engine->_device);
 
-    //Enable blending for transparent objects
     pipelineBuilder.enableBlendingAdditive();
     pipelineBuilder.enableDepthTest(false, VK_COMPARE_OP_LESS_OR_EQUAL);
     transparentPipeline.pipeline = pipelineBuilder.build(engine->_device);
 
     vkDestroyShaderModule(engine->_device, meshShader, nullptr);
 }
-void GLTFMetallicRoughness::clearResources(VkDevice device) { //TODO
-    vkDestroyDescriptorSetLayout(device, materialLayout, nullptr);
-    
+void GLTFMetallicRoughness::clearResources(VkDevice device) {
     vkDestroyPipelineLayout(device, opaquePipeline.layout, nullptr);
 
     vkDestroyPipeline(device, opaquePipeline.pipeline, nullptr);
     vkDestroyPipeline(device, transparentPipeline.pipeline, nullptr);
 }
 
-TsukiMaterial GLTFMetallicRoughness::writeMaterial(VkDevice device, TsukiMaterialPass pass, const GLTFMetallicRoughness::MaterialResources &resources,
-    DynamicDescriptorAllocator &descriptorAllocator) {
-    TsukiMaterial materialData;
-
-    materialData.passType = pass;
-    materialData.pipeline = (pass == TsukiMaterialPass::TSUKI_MATERIAL_TRANSPARENT) ? &transparentPipeline : &opaquePipeline;
-    materialData.descriptorSet = descriptorAllocator.allocate(device, materialLayout);
-
-    writer.clear();
-    writer.writeBuffer(0, resources.dataBuffer, sizeof(MaterialConstants), resources.dataBufferOffset, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-    writer.writeImage(1, resources.colorImage.imageView, resources.colorSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-    writer.writeImage(2, resources.metallicRoughnessImage.imageView, resources.metallicRoughnessSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-
-    writer.updateSet(device, materialData.descriptorSet);
-
-    return materialData;
-}
-
 //SCENEGRAPH
 //===================================================================================================================
 void TMeshNode::queueDraw(const glm::mat4 &matrix, TsukiDrawContext &context) {
-    glm::mat4 nodeMatrix = matrix * worldTransform;
+    glm::mat4 nodeMatrix = matrix * localTransform;
 
-    //Add the submeshes to the draw context to be drawn
-    for (auto &subMesh : mesh->subMeshes) {
-        TsukiRenderObject def;
-        def.size = subMesh.size;
-        def.offset = subMesh.offset;
+    TsukiVulkanRender vulkanRender;
+    vulkanRender.indexBuffer = mesh->meshBuffers.indexBuffer.buffer;
+    vulkanRender.meshDescriptorSet = mesh->meshBuffers.perMeshDescriptorSet;
+    vulkanRender.indexCount = mesh->indexCount;
+    vulkanRender.indexOffset = 0;
+    vulkanRender.transform = nodeMatrix;
+    vulkanRender.material = &context.engine->defaultData;
 
-        def.indexBuffer = mesh->meshBuffers.indexBuffer.buffer;
-        def.material = &subMesh.material->data;
-        def.transform = nodeMatrix;
-        def.vertexBufferAddress = mesh->meshBuffers.vertexBufferAddress;
-        //std::cerr << "vertexBufferAddress: " << def.vertexBufferAddress << std::endl;
+    context.opaqueObjects.push_back(vulkanRender);
 
-        context.opaqueObjects.push_back(def);
-    }
-
-    //Recurse to the children
-    TNode::queueDraw(matrix, context);
+    TNode::queueDraw(matrix * localTransform, context);
 }
 
 //MAIN FUNCTIONS
@@ -269,12 +237,36 @@ void TsukiEngine::init() {
     initCudaData();
 
     initImgui();
+
+    _mainDrawContext.engine = this;
+
+    //TODO: Move elsewhere...?
+    _materialDataBuffer = createBuffer(1024 * sizeof(TsukiMaterialData),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VMA_MEMORY_USAGE_GPU_ONLY);
     
     //Load the Cornell Box scene
     std::string cornellBoxPath = "./Models/cornellbox.glb";
-    auto cornellBoxFile = tsukiutil::loadGltf2(this, cornellBoxPath);
+    auto cornellBoxFile = tsukiutil::loadGltf(this, cornellBoxPath);
     assert(cornellBoxFile.has_value());
     loadedScenes["Cornell Box"] = *cornellBoxFile;
+
+    //Create the GPU material data buffer after materials are loaded
+    //if (!materials.empty()) {
+    //    
+
+    //    AllocatedBuffer stagingMat = createBuffer(materials.size() * sizeof(TsukiMaterialData),
+    //        VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+    //    memcpy(stagingMat.allocation->GetMappedData(), materials.data(), materials.size() * sizeof(TsukiMaterialData));
+
+    //    immediateSubmit([&](VkCommandBuffer cmd) {
+    //        VkBufferCopy copy{};
+    //        copy.size = materials.size() * sizeof(TsukiMaterialData);
+    //        vkCmdCopyBuffer(cmd, stagingMat.buffer, _materialDataBuffer.buffer, 1, &copy);
+    //        });
+
+    //    destroyBuffer(stagingMat);
+    //}
 
 	_isInit = true;
 }
@@ -285,7 +277,7 @@ void TsukiEngine::cleanup() {
 
         loadedScenes.clear();
 
-        //TODO: Destroy synchronization structures
+        destroyBuffer(_materialDataBuffer);
 
         for (int i = 0; i < FRAMES_IN_FLIGHT; ++i) {
             vkDestroyCommandPool(_device, _frames[i]._commandPool, nullptr);
@@ -297,7 +289,6 @@ void TsukiEngine::cleanup() {
         }
 
         metallicRoughnessMaterial.clearResources(_device);
-
 
         _mainDeletionQueue.flush();
 
@@ -697,57 +688,174 @@ AllocatedBuffer TsukiEngine::createExternalBuffer(size_t allocSize, VkBufferUsag
     return newBuffer;
 }
 
+AllocatedImage TsukiEngine::createExternalImage(void *data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmaps) {
+    size_t dataSize = extent.width * extent.height * extent.depth * 4;
+
+    AllocatedBuffer stagingBuffer = createBuffer(dataSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+    memcpy(stagingBuffer.info.pMappedData, data, dataSize);
+
+    VkExternalMemoryImageCreateInfo externalImageInfo{};
+    externalImageInfo.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
+    externalImageInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+
+    VkImageCreateInfo imageInfo = tsukiinit::tImageCreateInfo(format, usage | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, extent);
+    imageInfo.pNext = &externalImageInfo;
+    if (mipmaps) {
+        imageInfo.mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1;
+    }
+
+    VmaAllocationCreateInfo allocInfo{};
+    allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+    allocInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    allocInfo.pool = _vmaExternalPool;
+
+    AllocatedImage newImage;
+    newImage.imageFormat = format;
+    newImage.imageExtent = extent;
+
+    VK_CHECK(vmaCreateImage(_allocator, &imageInfo, &allocInfo, &newImage.image, &newImage.allocation, nullptr));
+
+    VkImageAspectFlags aspectFlag = (format == VK_FORMAT_D32_SFLOAT) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+
+    VkImageViewCreateInfo imageViewInfo = tsukiinit::tImageViewCreateInfo(format, newImage.image, aspectFlag);
+    imageViewInfo.subresourceRange.levelCount = imageInfo.mipLevels;
+
+    VK_CHECK(vkCreateImageView(_device, &imageViewInfo, nullptr, &newImage.imageView));
+
+    immediateSubmit([&](VkCommandBuffer commandBuffer) {
+        tsukiutil::transitionImageLayout(commandBuffer, newImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+        VkBufferImageCopy copyRegion{};
+        copyRegion.bufferOffset = 0;
+        copyRegion.bufferRowLength = 0;
+        copyRegion.bufferImageHeight = 0;
+
+        copyRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        copyRegion.imageSubresource.mipLevel = 0;
+        copyRegion.imageSubresource.baseArrayLayer = 0;
+        copyRegion.imageSubresource.layerCount = 1;
+        copyRegion.imageExtent = extent;
+
+        vkCmdCopyBufferToImage(commandBuffer, stagingBuffer.buffer, newImage.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+
+        tsukiutil::transitionImageLayout(commandBuffer, newImage.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        });
+
+    destroyBuffer(stagingBuffer);
+
+    return newImage;
+}
+
 void TsukiEngine::destroyBuffer(const AllocatedBuffer &buffer) {
     vmaDestroyBuffer(_allocator, buffer.buffer, buffer.allocation);
 }
 
 //MESH HELPERS
 //===================================================================================================================
-GPUMeshBuffers TsukiEngine::uploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices) {
+DeviceMeshBuffers TsukiEngine::uploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices, std::span<uint32_t> materialLookup, int startMaterialIndex) {
     const size_t vertexBufferSize = vertices.size() * sizeof(Vertex);
     const size_t indexBufferSize = indices.size() * sizeof(uint32_t);
+    const size_t materialLookupSize = materialLookup.size() * sizeof(uint32_t);
 
-    GPUMeshBuffers mesh;
+    DeviceMeshBuffers mesh;
 
-    //Allocate a buffer on the GPU to hold the vertices
-    mesh.vertexBuffer = createBuffer(vertexBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+    //Create external buffers for the mesh
+    mesh.vertexBuffer = createExternalBuffer(vertexBufferSize,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VMA_MEMORY_USAGE_GPU_ONLY);
 
-    //Get the address of the allocated vertex buffer
-    VkBufferDeviceAddressInfo deviceAddressInfo{};
-    deviceAddressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-    deviceAddressInfo.buffer = mesh.vertexBuffer.buffer;
-
-    mesh.vertexBufferAddress = vkGetBufferDeviceAddress(_device, &deviceAddressInfo);
-
-    //Allocate a buffer on the GPU to hold the indices
-    mesh.indexBuffer = createBuffer(indexBufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+    mesh.indexBuffer = createExternalBuffer(indexBufferSize,
+        VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VMA_MEMORY_USAGE_GPU_ONLY);
 
-    AllocatedBuffer stagingBuffer = createBuffer(vertexBufferSize + indexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
-    void *data = stagingBuffer.allocation->GetMappedData();
-    memcpy(data, vertices.data(), vertexBufferSize);
-    memcpy((char *)data + vertexBufferSize, indices.data(), indexBufferSize);
+    mesh.materialLookupBuffer = createExternalBuffer(materialLookupSize,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VMA_MEMORY_USAGE_GPU_ONLY);
 
-    immediateSubmit([&](VkCommandBuffer commandBuffer) { //NOTE: Perhaps later, push this task to a background thread
-        //Copy the data from the staging buffer to the GPU-side vertex buffer
-        VkBufferCopy vertexBufferCopy{};
-        vertexBufferCopy.dstOffset = 0;
-        vertexBufferCopy.srcOffset = 0;;
-        vertexBufferCopy.size = vertexBufferSize;
+    //Giant staging buffer for us to place our data into
+    {
+        AllocatedBuffer stagingBuffer = createBuffer(vertexBufferSize + indexBufferSize + materialLookupSize,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+        void *data = stagingBuffer.allocation->GetMappedData();
+        memcpy(data, vertices.data(), vertexBufferSize);
+        memcpy((char *)data + vertexBufferSize, indices.data(), indexBufferSize);
+        memcpy((char *)data + vertexBufferSize + indexBufferSize, materialLookup.data(), materialLookupSize);
 
-        vkCmdCopyBuffer(commandBuffer, stagingBuffer.buffer, mesh.vertexBuffer.buffer, 1, &vertexBufferCopy);
+        //Copy the data over to the device-local buffers
+        immediateSubmit([&](VkCommandBuffer commandBuffer) {
+            VkBufferCopy vertexCopy{};
+            vertexCopy.dstOffset = 0;
+            vertexCopy.srcOffset = 0;
+            vertexCopy.size = vertexBufferSize;
+            vkCmdCopyBuffer(commandBuffer, stagingBuffer.buffer, mesh.vertexBuffer.buffer, 1, &vertexCopy);
 
-        //Do the same with the index buffer
-        VkBufferCopy indexBufferCopy{};
-        indexBufferCopy.dstOffset = 0;
-        indexBufferCopy.srcOffset = vertexBufferSize;
-        indexBufferCopy.size = indexBufferSize;
+            VkBufferCopy indexCopy{};
+            indexCopy.dstOffset = 0;
+            indexCopy.srcOffset = vertexBufferSize;
+            indexCopy.size = indexBufferSize;
+            vkCmdCopyBuffer(commandBuffer, stagingBuffer.buffer, mesh.indexBuffer.buffer, 1, &indexCopy);
 
-        vkCmdCopyBuffer(commandBuffer, stagingBuffer.buffer, mesh.indexBuffer.buffer, 1, &indexBufferCopy);
-        });
+            VkBufferCopy materialCopy{};
+            materialCopy.dstOffset = 0;
+            materialCopy.srcOffset = vertexBufferSize + indexBufferSize;
+            materialCopy.size = materialLookupSize;
+            vkCmdCopyBuffer(commandBuffer, stagingBuffer.buffer, mesh.materialLookupBuffer.buffer, 1, &materialCopy);
+            });
 
-    destroyBuffer(stagingBuffer);
+        destroyBuffer(stagingBuffer);
+    }
+
+    //Upload the material data
+    int numMaterials = materials.size() - startMaterialIndex;
+    if (numMaterials > 0) {
+        AllocatedBuffer stagingBuffer = createBuffer(numMaterials * sizeof(TsukiMaterialData),
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+        void *data = stagingBuffer.allocation->GetMappedData();
+        memcpy(data, reinterpret_cast<TsukiMaterialData*>(&(materials[startMaterialIndex])), numMaterials * sizeof(TsukiMaterialData));
+
+        //Copy the data over to the device-local buffers
+        immediateSubmit([&](VkCommandBuffer commandBuffer) {
+            VkBufferCopy materialCopy{};
+            materialCopy.dstOffset = startMaterialIndex * sizeof(TsukiMaterialData);
+            materialCopy.srcOffset = 0;
+            materialCopy.size = numMaterials * sizeof(TsukiMaterialData);
+            vkCmdCopyBuffer(commandBuffer, stagingBuffer.buffer, _materialDataBuffer.buffer, 1, &materialCopy);
+            });
+
+        destroyBuffer(stagingBuffer);
+    }
+
+    mesh.perMeshDescriptorSet = _meshDescriptorAllocator.allocate(_device, _perMeshDescriptorLayout);
+
+    DescriptorWriter writer;
+    writer.writeBuffer(0, mesh.vertexBuffer.buffer, vertexBufferSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    writer.writeBuffer(1, mesh.materialLookupBuffer.buffer, materialLookupSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    writer.updateSet(_device, mesh.perMeshDescriptorSet);
+
+    //TODO: Update the descriptor sets for the images
+    {
+        DescriptorWriter writer;
+        //Binding 0) material data array
+        writer.writeBuffer(0, _materialDataBuffer.buffer, materials.size() * sizeof(TsukiMaterialData), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+
+        //Binding 1) texture array
+        std::vector<VkImageView> textureViews;
+        textureViews.reserve(materialTextures.size());
+        for (auto &tex : materialTextures) {
+            textureViews.push_back(tex.imageView);
+        }
+        if (textureViews.empty()) {
+            textureViews.push_back(_errorCheckerboardImage.imageView);
+        }
+        writer.writeImageArray(1, textureViews.data(), (uint32_t)textureViews.size(), VK_NULL_HANDLE,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+
+        //Binding 2) sampler
+        writer.writeImage(2, VK_NULL_HANDLE, _defaultSamplerLinear,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_SAMPLER);
+
+        writer.updateSet(_device, _bindlessDescriptorSet);
+    }
 
     return mesh;
 }
@@ -995,18 +1103,17 @@ void TsukiEngine::resizeSwapChain() {
 }
 
 void TsukiEngine::initDescriptors() {
-    std::vector<DynamicDescriptorAllocator::PoolSizeRatio> sizes = { 
-        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1}, //1 storage image (image writeable to from compute shader) per descriptor set
+    std::vector<DynamicDescriptorAllocator::PoolSizeRatio> sizes = {
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1},
         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1}
-    }; 
-    globalDescriptorAllocator.init(_device, 10, sizes); //Max 10 descriptor sets
+    };
+    globalDescriptorAllocator.init(_device, 10, sizes);
 
     DescriptorLayoutBuilder builder;
-    builder.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE); //Promise an image at binding 0
+    builder.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
     _drawImageDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_COMPUTE_BIT);
 
-    _drawImageDescriptors = globalDescriptorAllocator.allocate(_device, _drawImageDescriptorLayout); //Allocate 1 image
+    _drawImageDescriptors = globalDescriptorAllocator.allocate(_device, _drawImageDescriptorLayout);
 
     VkDescriptorImageInfo imageInfo{};
     imageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -1015,8 +1122,6 @@ void TsukiEngine::initDescriptors() {
     VkWriteDescriptorSet drawImageWrite{};
     drawImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;;
     drawImageWrite.pNext = nullptr;
-
-    //Create a write pointing to the binding (0) and our image (via the image view)
     drawImageWrite.dstBinding = 0;
     drawImageWrite.dstSet = _drawImageDescriptors;
     drawImageWrite.descriptorCount = 1;
@@ -1025,43 +1130,86 @@ void TsukiEngine::initDescriptors() {
 
     vkUpdateDescriptorSets(_device, 1, &drawImageWrite, 0, nullptr);
 
-    //Create a descriptor set layout that notes a uniform buffer will be available at the vertex and fragment shader stages
+    //Set 0) Scene data uniform buffer
     {
         DescriptorLayoutBuilder builder;
         builder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
         _sceneDataDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
     }
 
-    _mainDeletionQueue.push([&]() {
-        globalDescriptorAllocator.destroyPools(_device);
-        vkDestroyDescriptorSetLayout(_device, _drawImageDescriptorLayout, nullptr);
-        vkDestroyDescriptorSetLayout(_device, _singleImageDescriptorLayout, nullptr);
-        vkDestroyDescriptorSetLayout(_device, _sceneDataDescriptorLayout, nullptr);
-        });
+    //Set 1) Bindless textures + material data + sampler
+    {
+        //Let Vulkan know that the sampled image array be bindless, as otherwise Vulkan believes it's a constant sized array
+        
+        std::vector<VkDescriptorBindingFlags> bindingFlags = {
+            0, //Binding 0, the material data array
+            VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT, //Binding 1, the textures
+            0 //Binding 2, the sampler
+        };
 
-    //Create a descriptor pool for each frame in flight
+        VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{};
+        bindingFlagsInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
+        bindingFlagsInfo.bindingCount = bindingFlags.size();
+        bindingFlagsInfo.pBindingFlags = bindingFlags.data();
+
+        DescriptorLayoutBuilder builder;
+        builder.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); //Material data array
+        builder.addBinding(1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, MAX_BINDLESS_TEXTURES); //Texture array
+        builder.addBinding(2, VK_DESCRIPTOR_TYPE_SAMPLER); //Shared sampler
+        _bindlessTextureDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &bindingFlagsInfo, VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT);
+    }
+
+    //Set 2) Per-mesh buffers (vertex + material lookup)
+    {
+        DescriptorLayoutBuilder builder;
+        builder.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // vertex buffer
+        builder.addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // material lookup buffer
+        _perMeshDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_VERTEX_BIT);
+    }
+
+    //Persistent allocator for per-mesh descriptor sets
+    {
+        std::vector<DynamicDescriptorAllocator::PoolSizeRatio> meshSizes = {
+            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2}
+        };
+        _meshDescriptorAllocator.init(_device, 100, meshSizes);
+    }
+
+    //Per-frame descriptor pools
     for (int i = 0; i < FRAMES_IN_FLIGHT; ++i) {
         std::vector<DynamicDescriptorAllocator::PoolSizeRatio> framePoolSizes = {
             {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3},
-            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3},
-            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3},
-            {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4}
+            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3}
         };
 
         _frames[i]._frameDescriptors = DynamicDescriptorAllocator{};
-        _frames[i]._frameDescriptors.init(_device, 1000, framePoolSizes);
+        _frames[i]._frameDescriptors.init(_device, 2, framePoolSizes);
 
-        //Ensure deletion of the frames' descriptor pools
         _mainDeletionQueue.push([&, i]() {
             _frames[i]._frameDescriptors.destroyPools(_device);
             });
     }
 
-    {
-        DescriptorLayoutBuilder builder;
-        builder.addBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-        _singleImageDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_FRAGMENT_BIT);
-    }
+    //Create the descriptor "pool" to allocate the bindless descriptor set from
+    std::vector<DynamicDescriptorAllocator::PoolSizeRatio> bindlessPoolSizes = {
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1},
+        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, MAX_BINDLESS_TEXTURES},
+        {VK_DESCRIPTOR_TYPE_SAMPLER, 1}
+    };
+    _bindlessDescriptorAllocator.init(_device, 1, bindlessPoolSizes, VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT);
+
+    //Create the descriptor set for the bindless textures
+    _bindlessDescriptorSet = _bindlessDescriptorAllocator.allocate(_device, _bindlessTextureDescriptorLayout);
+
+    _mainDeletionQueue.push([&]() {
+        globalDescriptorAllocator.destroyPools(_device);
+        _meshDescriptorAllocator.destroyPools(_device);
+        _bindlessDescriptorAllocator.destroyPools(_device);
+        vkDestroyDescriptorSetLayout(_device, _drawImageDescriptorLayout, nullptr);
+        vkDestroyDescriptorSetLayout(_device, _sceneDataDescriptorLayout, nullptr);
+        vkDestroyDescriptorSetLayout(_device, _bindlessTextureDescriptorLayout, nullptr);
+        vkDestroyDescriptorSetLayout(_device, _perMeshDescriptorLayout, nullptr);
+        });
 }
 
 void TsukiEngine::initPipelines() {
@@ -1165,6 +1313,8 @@ void TsukiEngine::initCudaData() {
     VmaPoolCreateInfo poolCreateInfo{};
     poolCreateInfo.memoryTypeIndex = memoryTypeIndex;
     poolCreateInfo.pMemoryAllocateNext = &exportInfo;
+    poolCreateInfo.maxBlockCount = 4; //TODO: Maybe find a way to set this dynamically?
+    //Default block size is 256MB, so this allocates about 1GB of VRAM
 
     VK_CHECK(vmaCreatePool(_allocator, &poolCreateInfo, &_vmaExternalPool));
 
@@ -1368,10 +1518,8 @@ void TsukiEngine::drawImgui(VkCommandBuffer commandBuffer, VkImageView targetIma
 }
 
 void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer) {
-    //Benchmarking setup
     _benchmarker.numDrawCalls = 0;
     _benchmarker.numTriangles = 0;
-    //Begin clock for mesh draw time
     auto start = std::chrono::system_clock::now();
 
     VkRenderingAttachmentInfo colorAttachment = tsukiinit::tAttachmentInfo(_drawImage.imageView, nullptr);
@@ -1380,7 +1528,6 @@ void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer) {
     VkRenderingInfo renderInfo = tsukiinit::tRenderingInfo(_drawExtent, &colorAttachment, &depthAttachment);
     vkCmdBeginRendering(commandBuffer, &renderInfo);
 
-    //Dynamically set viewport and scissor
     VkViewport viewport{};
     viewport.x = 0;
     viewport.y = 0;
@@ -1388,73 +1535,57 @@ void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer) {
     viewport.height = _drawExtent.height;
     viewport.minDepth = 0;
     viewport.maxDepth = 1;
-
-    vkCmdSetViewport(commandBuffer, 0, 1, &viewport); //0 is the index of the first viewport, 1 viewport
+    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
 
     VkRect2D scissor{};
     scissor.offset.x = 0;
     scissor.offset.y = 0;
     scissor.extent.width = _drawExtent.width;
     scissor.extent.height = _drawExtent.height;
-
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipeline);
-
-    //NOTE: We allocate descriptor sets from our frame specific and global allocators each frame
-
-    //Allocate a descriptor set for the texture image from our frame's dynamic descriptor set allocator
-    VkDescriptorSet imageSet = getCurrFrame()._frameDescriptors.allocate(_device, _singleImageDescriptorLayout);
-
-    { //Scope this
-        DescriptorWriter writer;
-        writer.writeImage(0, _errorCheckerboardImage.imageView, _defaultSamplerNearest, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-        writer.updateSet(_device, imageSet);
-    }
-
+    //Set 0) Scene data UBO
     AllocatedBuffer sceneDataBuffer = createBuffer(sizeof(SceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
     getCurrFrame()._deletionQueue.push([=, this]() {
         destroyBuffer(sceneDataBuffer);
         });
-
     SceneData *sceneDataData = reinterpret_cast<SceneData *>(sceneDataBuffer.allocation->GetMappedData());
     *sceneDataData = sceneData;
 
-    //Create a descriptor set that binds the data and update it
-    VkDescriptorSet globalDescriptor = getCurrFrame()._frameDescriptors.allocate(_device, _sceneDataDescriptorLayout);
+    VkDescriptorSet sceneDescriptor = getCurrFrame()._frameDescriptors.allocate(_device, _sceneDataDescriptorLayout);
     {
         DescriptorWriter writer;
         writer.writeBuffer(0, sceneDataBuffer.buffer, sizeof(SceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-        writer.updateSet(_device, globalDescriptor);
+        writer.updateSet(_device, sceneDescriptor);
     }
 
-    //Bind the descriptor set containing our texture
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipelineLayout, 0, 1, &imageSet, 0, nullptr);
+    //Bind the two global descriptor sets
+    VkDescriptorSet globalSets[] = { sceneDescriptor, _bindlessDescriptorSet };
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+        metallicRoughnessMaterial.opaquePipeline.layout, 0, 2, globalSets, 0, nullptr);
 
-    glm::mat4 view = glm::translate(glm::vec3(0, 0, -5));
-    glm::mat4 proj = glm::perspective(glm::radians(70.f), static_cast<float>(_drawExtent.width) / static_cast<float>(_drawExtent.height), .1f, 10000.f);
-    proj[1][1] *= -1; //Flip the Y of the projection matrix
-    //pushConstants.worldMatrix = proj * view;
+    //Draw loop
+    auto draw = [&](const TsukiVulkanRender &renderable) {
+        VkPipelineLayout layout = renderable.material->pipeline->layout;
+        VkPipeline pipeline = renderable.material->pipeline->pipeline;
 
-    //Lambda for drawing
-    auto draw = [&](const TsukiRenderObject &draw) {
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->pipeline);
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->layout, 0, 1, &globalDescriptor, 0, nullptr);
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->layout, 1, 1, &draw.material->descriptorSet, 0, nullptr);
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
-        vkCmdBindIndexBuffer(commandBuffer, draw.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+        //Bind Set 2) per-mesh vertex + material lookup buffers
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            layout, 2, 1, &renderable.meshDescriptorSet, 0, nullptr);
+
+        vkCmdBindIndexBuffer(commandBuffer, renderable.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
         GPUDrawPushConstants pushConstants;
-        pushConstants.vertexBuffer = draw.vertexBufferAddress; //vertex buffer address is sent with each renderable object
-        pushConstants.worldMatrix = draw.transform;
+        pushConstants.worldMatrix = renderable.transform;
         pushConstants.inverseTranspose = glm::mat4(glm::inverse(glm::transpose(glm::mat3(pushConstants.worldMatrix))));
-        vkCmdPushConstants(commandBuffer, draw.material->pipeline->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pushConstants);
+        vkCmdPushConstants(commandBuffer, layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pushConstants);
 
-        vkCmdDrawIndexed(commandBuffer, draw.size, 1, draw.offset, 0, 0);
+        vkCmdDrawIndexed(commandBuffer, renderable.indexCount, 1, renderable.indexOffset, 0, 0);
 
-        //Increment benchmarking stats
         ++_benchmarker.numDrawCalls;
-        _benchmarker.numTriangles += draw.size / 3;
+        _benchmarker.numTriangles += renderable.indexCount / 3;
         };
 
     for (auto &r : _mainDrawContext.opaqueObjects) {
@@ -1464,14 +1595,12 @@ void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer) {
     for (auto &r : _mainDrawContext.transparentObjects) {
         draw(r);
     }
-    
+
     vkCmdEndRendering(commandBuffer);
 
-    //Remove the objects we've drawn
     _mainDrawContext.opaqueObjects.clear();
     _mainDrawContext.transparentObjects.clear();
 
-    //Compute timing for mesh draws
     auto end = std::chrono::system_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
     _benchmarker.meshDrawTime = elapsed.count() / 1000.f;
@@ -1479,34 +1608,38 @@ void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer) {
 
 void TsukiEngine::initMeshPipeline() {
     VkShaderModule meshShader;
-    if (!tsukiutil::loadShaderModule("./Shaders/buffertest.spv", _device, &meshShader)) {
-        std::cerr << "Error building buffertest shader" << std::endl;
+    if (!tsukiutil::loadShaderModule("./Shaders/meshshader.spv", _device, &meshShader)) {
+        std::cerr << "Error building mesh shader" << std::endl;
     }
 
-    //Set up push constants
     VkPushConstantRange bufferRange{};
     bufferRange.offset = 0;
     bufferRange.size = sizeof(GPUDrawPushConstants);
     bufferRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 
+    VkDescriptorSetLayout layouts[] = {
+        _sceneDataDescriptorLayout,
+        _bindlessTextureDescriptorLayout,
+        _perMeshDescriptorLayout
+    };
+
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = tsukiinit::tPipelineLayoutCreateInfo();
-    //Include push constants in the pipeline layout
     pipelineLayoutInfo.pushConstantRangeCount = 1;
     pipelineLayoutInfo.pPushConstantRanges = &bufferRange;
-    pipelineLayoutInfo.setLayoutCount = 1;
-    pipelineLayoutInfo.pSetLayouts = &_singleImageDescriptorLayout;
+    pipelineLayoutInfo.setLayoutCount = 3;
+    pipelineLayoutInfo.pSetLayouts = layouts;
 
     VK_CHECK(vkCreatePipelineLayout(_device, &pipelineLayoutInfo, nullptr, &_meshPipelineLayout));
 
     PipelineBuilder pipelineBuilder;
     pipelineBuilder._pipelineLayout = _meshPipelineLayout;
-    pipelineBuilder.setShaders(meshShader, meshShader, "vertMain", "fragTextureMain");
-    pipelineBuilder.setInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST); //Draw meshs
+    pipelineBuilder.setShaders(meshShader, meshShader, "vertMain", "fragMain");
+    pipelineBuilder.setInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
     pipelineBuilder.setPolygonMode(VK_POLYGON_MODE_FILL);
     pipelineBuilder.setCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
     pipelineBuilder.setMultisamplingNone();
     pipelineBuilder.disableBlending();
-    pipelineBuilder.enableDepthTest(true, VK_COMPARE_OP_GREATER_OR_EQUAL); //Render fragment iff the current depth image depth is equal to or greater than the fragment depth
+    pipelineBuilder.enableDepthTest(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
 
     pipelineBuilder.setColorAttachmentFormat(_drawImage.imageFormat);
     pipelineBuilder.setDepthFormat(_depthImage.imageFormat);
@@ -1538,7 +1671,7 @@ void TsukiEngine::initDefaultMeshData() {
     std::array<uint32_t, 16 * 16> pixels;
     for (int y = 0; y < 16; ++y) {
         for (int x = 0; x < 16; ++x) {
-            pixels[y * 16 + x] = ((x % 2) ^ (y % 2)) ? magenta : black; //^ is bitwise XOR
+            pixels[y * 16 + x] = ((x % 2) ^ (y % 2)) ? magenta : black;
         }
     }
     _errorCheckerboardImage = createImage(pixels.data(), VkExtent3D{ 16, 16, 1 }, VK_FORMAT_R8G8B8A8_UNORM,
@@ -1546,10 +1679,8 @@ void TsukiEngine::initDefaultMeshData() {
 
     VkSamplerCreateInfo sampler{};
     sampler.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-
     sampler.magFilter = VK_FILTER_NEAREST;
     sampler.minFilter = VK_FILTER_NEAREST;
-
     vkCreateSampler(_device, &sampler, nullptr, &_defaultSamplerNearest);
 
     sampler.magFilter = VK_FILTER_LINEAR;
@@ -1559,35 +1690,14 @@ void TsukiEngine::initDefaultMeshData() {
     _mainDeletionQueue.push([&]() {
         vkDestroySampler(_device, _defaultSamplerNearest, nullptr);
         vkDestroySampler(_device, _defaultSamplerLinear, nullptr);
-
         destroyImage(_whiteImage);
         destroyImage(_grayImage);
         destroyImage(_blackImage);
         destroyImage(_errorCheckerboardImage);
         });
 
-    GLTFMetallicRoughness::MaterialResources materialResources;
-    materialResources.colorImage = _whiteImage;
-    materialResources.colorSampler = _defaultSamplerLinear;
-    materialResources.metallicRoughnessImage = _whiteImage;
-    materialResources.metallicRoughnessSampler = _defaultSamplerLinear;
-
-    AllocatedBuffer materialConstants = createBuffer(sizeof(GLTFMetallicRoughness::MaterialConstants), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-
-    //Set the material constants data in the GPU-visible memory
-    GLTFMetallicRoughness::MaterialConstants *sceneData = reinterpret_cast<GLTFMetallicRoughness::MaterialConstants *>(materialConstants.allocation->GetMappedData());
-    sceneData->colorFac = glm::vec4(1);
-    sceneData->metallicRoughnessFac = glm::vec4(1, .5, 0, 0);
-
-    _mainDeletionQueue.push([=, this]() {
-        destroyBuffer(materialConstants);
-        });
-
-    materialResources.dataBuffer = materialConstants.buffer;
-    materialResources.dataBufferOffset = 0;
-
-    //Create a default material
-    defaultData = metallicRoughnessMaterial.writeMaterial(_device, TsukiMaterialPass::TSUKI_MATERIAL_OPAQUE, materialResources, globalDescriptorAllocator);
+    defaultData.passType = TsukiMaterialPass::TSUKI_MATERIAL_OPAQUE;
+    defaultData.pipeline = &metallicRoughnessMaterial.opaquePipeline;
 }
 //End Chapter 3
 
@@ -1691,6 +1801,11 @@ void TsukiEngine::createLogicalDevice() {
 
     VkPhysicalDeviceVulkan12Features vk12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
     vk12.bufferDeviceAddress = VK_TRUE;
+    vk12.descriptorIndexing = VK_TRUE;
+    vk12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+    vk12.descriptorBindingPartiallyBound = VK_TRUE;
+    vk12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+    vk12.runtimeDescriptorArray = VK_TRUE;
 
     VkPhysicalDeviceVulkan13Features vk13 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
     vk13.synchronization2 = VK_TRUE;
@@ -1832,10 +1947,15 @@ bool TsukiEngine::isDeviceSuitable(VkPhysicalDevice device) { //TODO: Update
 
     vkGetPhysicalDeviceFeatures2(device, &supportedFeatures2);
 
-    bool supportsRequiredFeatures =
+	bool supportsRequiredFeatures =
         supportedFeatures2.features.samplerAnisotropy &&
         vk11.shaderDrawParameters &&
         vk12.bufferDeviceAddress &&
+        vk12.descriptorIndexing &&
+        vk12.shaderSampledImageArrayNonUniformIndexing &&
+        vk12.descriptorBindingPartiallyBound &&
+        vk12.descriptorBindingSampledImageUpdateAfterBind &&
+        vk12.runtimeDescriptorArray &&
         vk13.synchronization2 &&
         vk13.dynamicRendering &&
         eds.extendedDynamicState;

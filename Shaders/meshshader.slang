@@ -8,9 +8,19 @@ struct SceneData {
     float ambient;
 };
 
-struct GLTFMaterialData {
-    float4 colorFac; //Like a BRDF
-    float4 metallicRoughnessFac; //PBR parameters
+struct TsukiMaterialData {
+    int colorTextureIndex;
+    int metallicRoughnessTextureIndex;
+    int emissiveTextureIndex;
+    int normalTextureIndex;
+
+    float4 colorFac;
+    float4 metallicRoughnessFac;
+    float4 emissionFac;
+
+    uint8_t pass;
+    uint8_t passPadding[3];
+    float4 padding[11];
 };
 
 struct Vertex {
@@ -19,13 +29,11 @@ struct Vertex {
     float3 normal;
     float uvY;
     float4 color;
-    float4 emission;
 };
 
 struct PushConstants {
     float4x4 worldMatrix;
-    float4x4 inverseTranspose; //4x4 for memory alignment reasons--rows get 16 bytes each, whereas the CPU tightly packs the floats (I think)
-    Vertex *vertexBuffer;
+    float4x4 inverseTranspose;
 };
 
 struct VSOutput {
@@ -34,29 +42,33 @@ struct VSOutput {
     float3 normal;
     float3 color;
     float2 uv;
-    float4 emission;
+    nointerpolation int materialIndex;
 };
 
-//Slang will attempt to pack loose global structures together
-//vk::binding(binding, set)
 [vk::binding(0, 0)]
 ConstantBuffer<SceneData> sceneData;
 
 [vk::binding(0, 1)]
-ConstantBuffer<GLTFMaterialData> gltfMaterialData;
+StructuredBuffer<TsukiMaterialData> materialDataArray;
 
 [vk::binding(1, 1)]
-Sampler2D colorTexture;
+Texture2D<float4> textures[4096];
 
 [vk::binding(2, 1)]
-Sampler2D metallicRoughnessTexture;
+SamplerState defaultSampler;
+
+[vk::binding(0, 2)]
+StructuredBuffer<Vertex> vertexBuffer;
+
+[vk::binding(1, 2)]
+StructuredBuffer<int> materialLookupBuffer;
 
 [vk::push_constant]
 PushConstants vsInput;
 
 [shader("vertex")]
-VSOutput vertMain(uint index: SV_VertexID) {
-    Vertex v = vsInput.vertexBuffer[index];
+VSOutput vertMain(uint index : SV_VertexID) {
+    Vertex v = vertexBuffer[index];
 
     float4 pos = float4(v.pos, 1);
 
@@ -64,10 +76,13 @@ VSOutput vertMain(uint index: SV_VertexID) {
     vsOutput.pos = mul(sceneData.viewproj, mul(vsInput.worldMatrix, pos));
     vsOutput.worldPos = mul(vsInput.worldMatrix, pos).xyz;
     vsOutput.normal = mul(vsInput.inverseTranspose, float4(v.normal, 1)).xyz;
-    vsOutput.color = gltfMaterialData.colorFac.rgb;
+
+    uint materialIndex = materialLookupBuffer[index];
+    TsukiMaterialData mat = materialDataArray[materialIndex];
+    vsOutput.color = v.color.rgb;
     vsOutput.uv.x = v.uvX;
     vsOutput.uv.y = v.uvY;
-    vsOutput.emission = v.emission;
+    vsOutput.materialIndex = materialIndex;
 
     return vsOutput;
 }
@@ -77,9 +92,19 @@ float4 fragMain(VSOutput fsInput) : SV_Target {
     float3 camPos = mul(sceneData.view, float4(0, 0, 0, 1)).xyz;
 
     float lambertian = max(dot(normalize(fsInput.normal), normalize(sceneData.camPos - fsInput.worldPos)), sceneData.ambient);
-    float3 color = fsInput.color * colorTexture.Sample(fsInput.uv).rgb;
 
-    //return float4(fsInput.normal, 1);
-    //return float4(fsInput.color, 1);
+    if (fsInput.materialIndex == -1) {
+        return float4(1, 0, 1, 1);
+    }
+
+    bool hasMat = false;
+    TsukiMaterialData mat = materialDataArray[fsInput.materialIndex];
+
+    float3 texColor = float3(1, 1, 1);
+    if (mat.colorTextureIndex >= 0) {
+        texColor = textures[NonUniformResourceIndex(mat.colorTextureIndex)].Sample(defaultSampler, fsInput.uv).rgb;
+    }
+    float3 color = fsInput.color * mat.colorFac.rgb;
+
     return float4(lambertian * color, 1);
 }

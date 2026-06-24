@@ -71,65 +71,61 @@ struct Benchmarker {
 
 //MATERIALS
 //===================================================================================================================
+struct MaterialTexture {
+	AllocatedImage image;
+	VkSampler sampler;
+};
+
+struct TsukiMaterialResources { //TODO
+	AllocatedImage colorImage;
+	VkSampler colorSampler;
+
+	AllocatedImage metallicRoughnessImage;
+	VkSampler metallicRoughnessSampler;
+
+	//TODO: PROPERLY INTEGRATE
+	AllocatedImage emissionFacImage;
+	VkSampler emissionFacSampler;
+
+	AllocatedImage normalImage;
+	VkSampler normalSampler;
+	//
+
+	VkBuffer dataBuffer;
+	uint32_t dataBufferOffset;
+};
+
 struct GLTFMetallicRoughness {
 	TsukiMaterialPipeline opaquePipeline;
 	TsukiMaterialPipeline transparentPipeline;
 
-	VkDescriptorSetLayout materialLayout;
-
-	//To be written into a uniform buffer later
-	struct MaterialConstants { //TODO: Improve later
-		glm::vec4 colorFac; //Like the BRDF
-		glm::vec4 metallicRoughnessFac; //PBR Parameters
-
-		//TODO: Add emission...
-
-		glm::vec4 padding[14]; //Padding to meet the 256 bytes
-	};
-
-	//Handles to the resources of the material (e.g. textures, other data...)
-	struct MaterialResources { //TODO
-		AllocatedImage colorImage;
-		VkSampler colorSampler;
-
-		AllocatedImage metallicRoughnessImage;
-		VkSampler metallicRoughnessSampler;
-
-		VkBuffer dataBuffer;
-		uint32_t dataBufferOffset;
-	};
-
-	DescriptorWriter writer;
-
 	void buildPipelines(TsukiEngine *engine);
 	void clearResources(VkDevice device);
-
-	TsukiMaterial writeMaterial(VkDevice device, TsukiMaterialPass pass, const MaterialResources &resources,
-		DynamicDescriptorAllocator &descriptorAllocator);
 };
 
 //SCENEGRAPH
 //===================================================================================================================
 struct TMeshNode : public TNode {
-	std::shared_ptr<Mesh> mesh;
+	std::shared_ptr<TsukiMesh> mesh;
 
 	virtual void queueDraw(const glm::mat4 &matrix, TsukiDrawContext &context) override;
 };
 
-struct TsukiRenderObject {
-	uint32_t size;
-	uint32_t offset;
+struct TsukiVulkanRender {
 	VkBuffer indexBuffer;
-
-	TsukiMaterial *material;
-
 	glm::mat4 transform;
-	VkDeviceAddress vertexBufferAddress;
+	VkDescriptorSet meshDescriptorSet;
+	uint32_t indexCount;
+	uint32_t indexOffset;
+	TsukiMaterial *material;
 };
 
+class TsukiEngine;
+
 struct TsukiDrawContext {
-	std::vector<TsukiRenderObject> opaqueObjects;
-	std::vector<TsukiRenderObject> transparentObjects;
+	TsukiEngine *engine;
+	std::vector<TsukiVulkanRender> opaqueObjects;
+	std::vector<TsukiVulkanRender> transparentObjects;
 };
 
 class TsukiEngine {
@@ -203,7 +199,10 @@ public:
 	VkSampler _defaultSamplerLinear; //Sampling with linear blending
 	VkSampler _defaultSamplerNearest; //Sampling with nearest blending (good for low-res textures you don't want to end up blurry)
 
-	VkDescriptorSetLayout _singleImageDescriptorLayout;
+	VkDescriptorSetLayout _perMeshDescriptorLayout;    // Set 2)vertex + material lookup buffers
+	DynamicDescriptorAllocator _meshDescriptorAllocator; //Persistent allocator for per-mesh descriptor sets
+
+	AllocatedBuffer _materialDataBuffer; //GPU buffer holding TsukiMaterialData array
 
 	TsukiMaterial defaultData;
 	GLTFMetallicRoughness metallicRoughnessMaterial;
@@ -217,6 +216,16 @@ public:
 
 	Benchmarker _benchmarker;
 	//
+
+	//BETTER GLTF LOADING
+	std::vector<std::shared_ptr<TsukiMesh>> meshes;
+	std::vector<TsukiMaterialData> materials; //One big global material buffer
+	std::vector<AllocatedImage> materialTextures;
+
+	//BINDLESS MATERIAL DESCRIPTORS
+	VkDescriptorSet _bindlessDescriptorSet;
+	VkDescriptorSetLayout _bindlessTextureDescriptorLayout; //Set 1) material data + textures + sampler
+	DynamicDescriptorAllocator _bindlessDescriptorAllocator;
 
 	//CUDA INTEROP
 	VmaPool _vmaExternalPool; //Pool for allocating memory that will be exported
@@ -261,13 +270,12 @@ public:
 	//TODO: Move this elswhere?
 	AllocatedBuffer createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 	AllocatedBuffer createExternalBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
+	AllocatedImage createExternalImage(void *data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmaps = false);
 	void destroyBuffer(const AllocatedBuffer &buffer);
 
 	//MESH HELPERS
 	//===================================================================================================================
-	GPUMeshBuffers uploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
-
-	GPUMeshBuffers uploadMeshCoherent(std::span<uint32_t> indices, std::span<Vertex> vertices);
+	DeviceMeshBuffers uploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices, std::span<uint32_t> materialLookup, int startMaterialIndex);
 
 private:
 

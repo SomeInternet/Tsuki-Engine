@@ -1,9 +1,9 @@
 #include "t_descriptors.h"
 
-void DescriptorLayoutBuilder::addBinding(uint32_t binding, VkDescriptorType type) {
+void DescriptorLayoutBuilder::addBinding(uint32_t binding, VkDescriptorType type, uint32_t descriptorCount) {
 	VkDescriptorSetLayoutBinding newBinding{};
 	newBinding.binding = binding;
-	newBinding.descriptorCount = 1;
+	newBinding.descriptorCount = descriptorCount;
 	newBinding.descriptorType = type;
 
 	bindings.push_back(newBinding);
@@ -92,7 +92,7 @@ VkDescriptorPool DynamicDescriptorAllocator::getPool(VkDevice device) {
 	return newPool;
 }
 
-VkDescriptorPool DynamicDescriptorAllocator::createPool(VkDevice device, uint32_t setCount, std::span<PoolSizeRatio> poolRatios) {
+VkDescriptorPool DynamicDescriptorAllocator::createPool(VkDevice device, uint32_t setCount, std::span<PoolSizeRatio> poolRatios, VkDescriptorPoolCreateFlags flags /*=0*/ ) {
 	std::vector<VkDescriptorPoolSize> poolSizes;
 	for (PoolSizeRatio ratio : poolRatios) {
 		VkDescriptorPoolSize newPool{};
@@ -104,7 +104,7 @@ VkDescriptorPool DynamicDescriptorAllocator::createPool(VkDevice device, uint32_
 
 	VkDescriptorPoolCreateInfo poolInfo{};
 	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-	poolInfo.flags = 0;
+	poolInfo.flags = this->flags;
 	poolInfo.maxSets = setCount;
 	poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
 	poolInfo.pPoolSizes = poolSizes.data();
@@ -114,14 +114,15 @@ VkDescriptorPool DynamicDescriptorAllocator::createPool(VkDevice device, uint32_
 	return newPool;
 }
 
-void DynamicDescriptorAllocator::init(VkDevice device, uint32_t maxSets, std::span<PoolSizeRatio> poolRatios) {
+void DynamicDescriptorAllocator::init(VkDevice device, uint32_t maxSets, std::span<PoolSizeRatio> poolRatios, VkDescriptorPoolCreateFlags flags /*= 0*/) {
 	ratios.clear();
+	this->flags = flags;
 
 	for (auto ratio : poolRatios) {
 		ratios.push_back(ratio);
 	}
 
-	VkDescriptorPool newPool = createPool(device, maxSets, poolRatios);
+	VkDescriptorPool newPool = createPool(device, maxSets, poolRatios, flags);
 	setsPerPool = maxSets * 1.5;
 
 	readyPools.push_back(newPool);
@@ -192,6 +193,27 @@ void DescriptorWriter::writeImage(int binding, VkImageView imageView, VkSampler 
 	write.descriptorType = type;
 	write.pImageInfo = &info;
 	write.descriptorCount = 1;
+
+	writes.push_back(write);
+}
+
+void DescriptorWriter::writeImageArray(int binding, VkImageView *imageViews, uint32_t count, VkSampler sampler, VkImageLayout layout, VkDescriptorType type) {
+	size_t startIdx = imageInfos.size();
+	for (uint32_t i = 0; i < count; ++i) {
+		imageInfos.emplace_back(VkDescriptorImageInfo{
+			.sampler = sampler,
+			.imageView = imageViews[i],
+			.imageLayout = layout
+			});
+	}
+
+	VkWriteDescriptorSet write{};
+	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	write.dstSet = VK_NULL_HANDLE;
+	write.dstBinding = binding;
+	write.descriptorType = type;
+	write.pImageInfo = &imageInfos[startIdx];
+	write.descriptorCount = count;
 
 	writes.push_back(write);
 }

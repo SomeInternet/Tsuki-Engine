@@ -22,9 +22,6 @@ void TsukiGLTF::queueDraw(const glm::mat4 &matrix, TsukiDrawContext &context) {
 void TsukiGLTF::clear() { //TODO: Verify
 	VkDevice device = engine->_device;
 
-	descriptorAllocator.destroyPools(device);
-	engine->destroyBuffer(materialDataBuffer);
-
 	//Deallocate all the buffers for the meshes
 	for (auto &[key, value] : meshes) {
 		engine->destroyBuffer(value->meshBuffers.indexBuffer);
@@ -46,395 +43,8 @@ void TsukiGLTF::clear() { //TODO: Verify
 
 //TSUKIUTIL
 //===================================================================================================================
-std::optional <std::vector<std::shared_ptr<Mesh>>> tsukiutil::loadGltf(TsukiEngine *engine, std::filesystem::path filePath) {
-	std::cout << "Loading GLTF: " << filePath << std::endl;
 
-	fastgltf::GltfDataBuffer data;
-	bool loaded = data.loadFromFile(filePath);
-
-	constexpr auto gltfOptions = fastgltf::Options::LoadGLBBuffers | fastgltf::Options::LoadExternalBuffers;
-
-	fastgltf::Asset gltf;
-	fastgltf::Parser parser{};
-
-	auto load = parser.loadBinaryGLTF(&data, filePath.parent_path(), gltfOptions);
-
-	if (load) {
-		gltf = std::move(load.get());
-	}
-	else {
-		std::cerr << "Failed to load gltf! " << fastgltf::to_underlying(load.error()) << std::endl;
-		return{};
-	}
-
-	std::vector<std::shared_ptr<Mesh>> meshes;
-	std::vector<uint32_t> indices;
-	std::vector<Vertex> vertices;
-
-	for (fastgltf::Mesh &mesh : gltf.meshes) {
-		Mesh newMesh;
-		newMesh.name = mesh.name;
-
-		indices.clear();
-		vertices.clear();
-
-		//Iterate over the primitives of the mesh
-		for (auto &&p : mesh.primitives) {
-			SubMesh newSubMesh;
-			newSubMesh.offset = static_cast<uint32_t>(indices.size());
-			newSubMesh.size = static_cast<uint32_t>(gltf.accessors[p.indicesAccessor.value()].count);
-
-			size_t initialVertex = vertices.size();
-
-			//Load the indices
-			fastgltf::Accessor &indexAccessor = gltf.accessors[p.indicesAccessor.value()];
-			indices.reserve(indices.size() + indexAccessor.count);
-
-			fastgltf::iterateAccessor<std::uint32_t>(gltf, indexAccessor, [&](std::uint32_t idx) {
-				indices.push_back(idx + initialVertex);
-				});
-
-			//Load the vertex positions
-			fastgltf::Accessor &posAccessor = gltf.accessors[p.findAttribute("POSITION")->second];
-			vertices.resize(vertices.size() + posAccessor.count);
-
-			fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, posAccessor, [&](glm::vec3 v, size_t idx) {
-				Vertex newVertex;
-				newVertex.pos = v;
-				//Set the rest of the vertex attributes to dummy values
-				newVertex.normal = glm::vec3(1, 0, 0);
-				newVertex.color = glm::vec4(1);
-				newVertex.uvX = 0;
-				newVertex.uvY = 0;
-				vertices[initialVertex + idx] = newVertex;
-				});
-
-			//Load vertex normals
-			auto normals = p.findAttribute("NORMAL");
-			if (normals != p.attributes.end()) {
-				fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[(*normals).second], [&](glm::vec3 v, size_t idx) {
-					vertices[initialVertex + idx].normal = v;
-					});
-			}
-
-			//Load UVs
-			auto uv = p.findAttribute("TEXCOORD_0");
-			if (uv != p.attributes.end()) {
-				fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[(*uv).second], [&](glm::vec2 v, size_t idx) {
-					vertices[initialVertex + idx].uvX = v.x;
-					vertices[initialVertex + idx].uvY = v.y;
-					});
-			}
-
-			//Load colors
-			auto colors = p.findAttribute("COLOR_0");
-			if (colors != p.attributes.end()) {
-				fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[(*colors).second], [&](glm::vec4 v, size_t idx) {
-					vertices[initialVertex + idx].color = v;
-					});
-			}
-
-			newMesh.subMeshes.push_back(newSubMesh);
-		}
-
-		//Display normals
-		constexpr bool overrideColors = false;
-		if (overrideColors) {
-			for (Vertex &vertex : vertices) {
-				vertex.color = glm::vec4(vertex.normal, 1.f);
-			}
-		}
-
-		//Upload mesh buffers
-		newMesh.meshBuffers = engine->uploadMesh(indices, vertices);
-		//std::cout << "  uploaded mesh: " << newMesh.name << ", vertices: " << vertices.size() << ", indices: " << indices.size() << std::endl;
-		meshes.emplace_back(std::make_shared<Mesh>(std::move(newMesh)));
-	}
-
-	return meshes;
-}
-
-std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf2(TsukiEngine *engine, std::filesystem::path filePath) { //TODO: replace loadGltf with this
-	std::cerr << "Loading GLTF: " << filePath << std::endl;
-
-	std::shared_ptr<TsukiGLTF> scene = std::make_shared<TsukiGLTF>();
-
-	scene->engine = engine;
-
-	TsukiGLTF &file = *scene.get();
-
-	fastgltf::Parser parser;
-	constexpr auto gltfOptions = fastgltf::Options::DontRequireValidAssetMember | 
-		fastgltf::Options::AllowDouble | fastgltf::Options::LoadGLBBuffers | fastgltf::Options::LoadExternalBuffers;
-
-	fastgltf::GltfDataBuffer data;
-	data.loadFromFile(filePath);
-
-	fastgltf::Asset gltf;
-
-	std::filesystem::path path = filePath;
-
-	auto type = fastgltf::determineGltfFileType(&data);
-	if (type == fastgltf::GltfType::glTF) {
-		auto load = parser.loadGLTF(&data, path.parent_path(), gltfOptions);
-		if (load) {
-			gltf = std::move(load.get());
-		}
-		else {
-			std::cerr << "Failed to load GLTF! Error: " << fastgltf::to_underlying(load.error()) << std::endl;
-			return {};
-		}
-	}
-	else if (type == fastgltf::GltfType::GLB) {
-		auto load = parser.loadBinaryGLTF(&data, path.parent_path(), gltfOptions);
-		if (load) {
-			gltf = std::move(load.get());
-		}
-		else {
-			std::cerr << "Failed to load GLTF! Error: " << fastgltf::to_underlying(load.error()) << std::endl;
-			return {};
-		}
-	}
-	else {
-		std::cerr << "Failed to determine GLTF container" << std::endl;
-		return {};
-	}
-
-	std::vector<DynamicDescriptorAllocator::PoolSizeRatio> sizes = { 
-		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3},
-		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1}
-	};
-
-	file.descriptorAllocator.init(engine->_device, gltf.materials.size(), sizes);
-
-	for (fastgltf::Sampler &sampler : gltf.samplers) {
-		VkSamplerCreateInfo info{};
-		info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-		info.maxLod = VK_LOD_CLAMP_NONE;
-		info.minLod = 0;
-
-		info.magFilter = tsukiutil::extractFilter(sampler.magFilter.value_or(fastgltf::Filter::Nearest));
-		info.minFilter = tsukiutil::extractFilter(sampler.minFilter.value_or(fastgltf::Filter::Nearest));
-
-		info.mipmapMode = tsukiutil::extractMipmapMode(sampler.minFilter.value_or(fastgltf::Filter::Nearest));
-
-		VkSampler sampler;
-		VK_CHECK(vkCreateSampler(engine->_device, &info, nullptr, &sampler));
-		file.samplers.push_back(sampler);
-	}
-
-	std::vector<std::shared_ptr<Mesh>> meshes;
-	std::vector<std::shared_ptr<TNode>> nodes;
-	std::vector<AllocatedImage> images;
-	std::vector<std::shared_ptr<GLTFMaterial>> materials;
-
-	//Load textures
-	for (fastgltf::Image &image : gltf.images) {
-		//TODO: update
-		std::optional<AllocatedImage> texture = tsukiutil::loadGltfImage(engine, gltf, image);
-
-		if (texture.has_value()) { //Image load successful, push it back
-			images.push_back(*texture);
-			file.images[image.name.c_str()] = *texture;
-		}
-		else { //Image load failed, load error texture
-			images.push_back(engine->_errorCheckerboardImage);
-			std::cerr << "Failed to load glTF image texture: " << image.name << std::endl;
-		}
-		
-	}
-
-	//Load material data into a buffer
-	//Create buffer
-	//Material constants holds information like the color factor and PBR properties
-	file.materialDataBuffer = engine->createBuffer(sizeof(GLTFMetallicRoughness::MaterialConstants) * gltf.materials.size(),
-		VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-	int dataIndex = 0;
-	GLTFMetallicRoughness::MaterialConstants *sceneMaterialConstants = reinterpret_cast<GLTFMetallicRoughness::MaterialConstants *>(file.materialDataBuffer.info.pMappedData);
-	for (fastgltf::Material &material : gltf.materials) {
-		std::shared_ptr<GLTFMaterial> newMaterial = std::make_shared<GLTFMaterial>();
-		materials.push_back(newMaterial);
-		file.materials[material.name.c_str()] = newMaterial;
-
-		GLTFMetallicRoughness::MaterialConstants constants;
-		constants.colorFac.r = material.pbrData.baseColorFactor[0];
-		constants.colorFac.g = material.pbrData.baseColorFactor[1];
-		constants.colorFac.b = material.pbrData.baseColorFactor[2];
-		constants.colorFac.a = material.pbrData.baseColorFactor[3];
-
-		constants.metallicRoughnessFac.x = material.pbrData.metallicFactor;
-		constants.metallicRoughnessFac.y = material.pbrData.roughnessFactor;
-
-		sceneMaterialConstants[dataIndex] = constants; //Write it into the buffer
-
-		TsukiMaterialPass passType = (material.alphaMode == fastgltf::AlphaMode::Blend) ? TsukiMaterialPass::TSUKI_MATERIAL_TRANSPARENT : TsukiMaterialPass::TSUKI_MATERIAL_OPAQUE;
-
-		//Set the material resources to the defaults for now
-		GLTFMetallicRoughness::MaterialResources materialResources;
-		materialResources.colorImage = engine->_whiteImage;
-		materialResources.colorSampler = engine->_defaultSamplerLinear;
-		materialResources.metallicRoughnessImage = engine->_whiteImage;
-		materialResources.metallicRoughnessSampler = engine->_defaultSamplerLinear;
-
-		materialResources.dataBuffer = file.materialDataBuffer.buffer;
-		materialResources.dataBufferOffset = dataIndex * sizeof(GLTFMetallicRoughness::MaterialConstants);
-
-		if (material.pbrData.baseColorTexture.has_value()) {
-			size_t image = gltf.textures[material.pbrData.baseColorTexture.value().textureIndex].imageIndex.value();
-			size_t sampler = gltf.textures[material.pbrData.baseColorTexture.value().textureIndex].samplerIndex.value();
-
-			//TODO: Parse for PBR textures as well
-			materialResources.colorImage = images[image];
-			materialResources.colorSampler = file.samplers[sampler];
-		}
-
-		newMaterial->data = engine->metallicRoughnessMaterial.writeMaterial(engine->_device, passType, materialResources, file.descriptorAllocator);
-		++dataIndex;
-	}
-
-	//Load the meshes
-	std::vector<uint32_t> indices;
-	std::vector<Vertex> vertices;
-	for (fastgltf::Mesh &mesh : gltf.meshes) {
-		std::shared_ptr<Mesh> newMesh = std::make_shared<Mesh>();
-		meshes.push_back(newMesh);
-		file.meshes[mesh.name.c_str()] = newMesh;
-		newMesh->name = mesh.name;
-
-		indices.clear();
-		vertices.clear();
-		for (auto &primitive : mesh.primitives) {
-			SubMesh subMesh;
-			subMesh.offset = static_cast<uint32_t>(indices.size());
-			subMesh.size = static_cast<uint32_t>(gltf.accessors[primitive.indicesAccessor.value()].count);
-
-			size_t initialVertex = vertices.size(); //Get the next index that
-			//Load indices
-			{
-				fastgltf::Accessor &indexAccessor = gltf.accessors[primitive.indicesAccessor.value()];
-				indices.reserve(indices.size() + indexAccessor.count);
-
-				fastgltf::iterateAccessor<std::uint32_t>(gltf, indexAccessor, [&](std::uint32_t index) {
-					indices.push_back(index + initialVertex);
-					});
-			}
-
-			//Load the vertex positions
-			fastgltf::Accessor &posAccessor = gltf.accessors[primitive.findAttribute("POSITION")->second];
-			vertices.resize(vertices.size() + posAccessor.count);
-
-			fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, posAccessor, [&](glm::vec3 v, size_t idx) {
-				Vertex newVertex;
-				newVertex.pos = v;
-				//Set the rest of the vertex attributes to dummy values
-				newVertex.normal = glm::vec3(1, 0, 0);
-				newVertex.color = glm::vec4(1);
-				newVertex.uvX = 0;
-				newVertex.uvY = 0;
-				vertices[initialVertex + idx] = newVertex;
-				});
-
-			//Load vertex normals
-			auto normals = primitive.findAttribute("NORMAL");
-			if (normals != primitive.attributes.end()) {
-				fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[(*normals).second], [&](glm::vec3 v, size_t idx) {
-					vertices[initialVertex + idx].normal = v;
-					});
-			}
-
-			//Load UVs
-			auto uv = primitive.findAttribute("TEXCOORD_0");
-			if (uv != primitive.attributes.end()) {
-				fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[(*uv).second], [&](glm::vec2 v, size_t idx) {
-					vertices[initialVertex + idx].uvX = v.x;
-					vertices[initialVertex + idx].uvY = v.y;
-					});
-			}
-
-			//Load colors
-			auto colors = primitive.findAttribute("COLOR_0");
-			if (colors != primitive.attributes.end()) {
-				fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[(*colors).second], [&](glm::vec4 v, size_t idx) {
-					vertices[initialVertex + idx].color = v;
-					});
-			}
-
-			if (primitive.materialIndex.has_value()) {
-				subMesh.material = materials[primitive.materialIndex.value()];
-			}
-			else {
-				subMesh.material = materials[0];
-			}
-
-			newMesh->subMeshes.push_back(subMesh);
-		}
-		newMesh->meshBuffers = engine->uploadMesh(indices, vertices);
-	}
-
-	//Load the nodes
-	for (fastgltf::Node &node : gltf.nodes) {
-		std::shared_ptr<TNode> newNode;
-
-		if (node.meshIndex.has_value()) { //If it has a mesh, assign it the corresponding mesh based on its index
-			newNode = std::make_shared<TMeshNode>();
-			static_cast<TMeshNode *>(newNode.get())->mesh = meshes[*node.meshIndex];
-		}
-		else {
-			newNode = std::make_shared<TNode>();
-		}
-
-		nodes.push_back(newNode);
-		file.nodes[node.name.c_str()] = newNode;
-
-		//NOTE: std::visit allows us to execute a callable object (e.g. a lambda) on the currently active type inside an std::variant
-		//A variant is a type-safe version of a C-style union. A union packs all of its fields into the same memory location
-
-		//In glTF 2.0, a scene node can define its local transformation as individual lot, rot, scale (TRS) properties, or as a
-		//4x4 transformation matrix, but not both, so it's stored like a variant
-		std::visit(fastgltf::visitor{ [&](fastgltf::Node::TransformMatrix matrix) {
-				memcpy(&newNode->localTransform, matrix.data(), sizeof(matrix));
-			},
-			[&](fastgltf::Node::TRS transform) {
-				glm::vec3 trans = glm::vec3(transform.translation[0], transform.translation[1], transform.translation[2]);
-				glm::quat rot = glm::quat(transform.rotation[3], transform.rotation[0], transform.rotation[1], transform.rotation[2]);
-				glm::vec3 scale = glm::vec3(transform.scale[0], transform.scale[1], transform.scale[2]);
-
-				glm::mat4 transMat = glm::translate(trans);
-				glm::mat4 rotMat = glm::toMat4(rot);
-				glm::mat4 scaleMat = glm::scale(scale);
-
-				newNode->localTransform = transMat * rotMat * scaleMat;
-			} }, node.transform);
-	}
-
-	//Set up the scene graph hierarchy
-	for (int i = 0; i < gltf.nodes.size(); ++i) {
-		fastgltf::Node &gltfNode = gltf.nodes[i];
-
-		std::shared_ptr<TNode> &sceneNode = nodes[i];
-
-		for (auto &child : gltfNode.children) {
-			sceneNode->children.push_back(nodes[child]);
-			nodes[child]->parent = sceneNode;
-		}
-
-		//Find the root nodes
-		for (auto &node : nodes) {
-			if (node->parent.lock() == nullptr) {
-				//The advantage that weak pointers have over raw pointers is protection against dangling
-				//To read or modify the data, you must temporarily promote the weak pointer to a shared pointer via .lock()
-				//.lock() returns nullptr if the resource pointed to no longer exists
-				//You can therefore use .lock() to check if the resource is still alive
-				file.rootNodes.push_back(node);
-				node->updateTransform(glm::mat4(1));
-			}
-		}
-	}
-
-	return scene;
-}
-
-std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf3(TsukiEngine *engine, std::filesystem::path filePath) { //TODO: replace loadGltf with this
+std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf(TsukiEngine *engine, std::filesystem::path filePath) {
 	std::cerr << "Loading GLTF: " << filePath << std::endl;
 
 	std::shared_ptr<TsukiGLTF> scene = std::make_shared<TsukiGLTF>();
@@ -480,13 +90,6 @@ std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf3(TsukiEngine *eng
 		return {};
 	}
 
-	std::vector<DynamicDescriptorAllocator::PoolSizeRatio> sizes = {
-		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3},
-		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1}
-	};
-
-	file.descriptorAllocator.init(engine->_device, gltf.materials.size(), sizes);
-
 	for (fastgltf::Sampler &sampler : gltf.samplers) {
 		VkSamplerCreateInfo info{};
 		info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -503,96 +106,105 @@ std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf3(TsukiEngine *eng
 		file.samplers.push_back(sampler);
 	}
 
-	std::vector<std::shared_ptr<Mesh>> meshes;
+	std::vector<std::shared_ptr<TsukiMesh>> meshes;
 	std::vector<std::shared_ptr<TNode>> nodes;
 	std::vector<AllocatedImage> images;
-	std::vector<std::shared_ptr<GLTFMaterial>> materials;
 
-	//Load textures
+	std::vector<AllocatedImage> loadedImages;
+	loadedImages.reserve(gltf.images.size());
+
 	for (fastgltf::Image &image : gltf.images) {
-		//TODO: update
 		std::optional<AllocatedImage> texture = tsukiutil::loadGltfImage(engine, gltf, image);
 
-		if (texture.has_value()) { //Image load successful, push it back
-			images.push_back(*texture);
-			file.images[image.name.c_str()] = *texture;
+		if (texture.has_value()) {
+			loadedImages.push_back(texture.value());
 		}
-		else { //Image load failed, load error texture
-			images.push_back(engine->_errorCheckerboardImage);
+		else {
+			loadedImages.push_back(engine->_errorCheckerboardImage);
 			std::cerr << "Failed to load glTF image texture: " << image.name << std::endl;
 		}
-
 	}
 
-	//Load material data into a buffer
-	//Create buffer
-	//Material constants holds information like the color factor and PBR properties
-	file.materialDataBuffer = engine->createBuffer(sizeof(GLTFMetallicRoughness::MaterialConstants) * gltf.materials.size(),
-		VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-	int dataIndex = 0;
-	GLTFMetallicRoughness::MaterialConstants *sceneMaterialConstants = reinterpret_cast<GLTFMetallicRoughness::MaterialConstants *>(file.materialDataBuffer.info.pMappedData);
-	for (fastgltf::Material &material : gltf.materials) {
-		std::shared_ptr<GLTFMaterial> newMaterial = std::make_shared<GLTFMaterial>();
-		materials.push_back(newMaterial);
-		file.materials[material.name.c_str()] = newMaterial;
+	//Track where THIS specific glTF asset's texture array begins in the global engine array
+	int baseTextureIndex = static_cast<int>(engine->materialTextures.size());
 
-		GLTFMetallicRoughness::MaterialConstants constants;
-		constants.colorFac.r = material.pbrData.baseColorFactor[0];
-		constants.colorFac.g = material.pbrData.baseColorFactor[1];
-		constants.colorFac.b = material.pbrData.baseColorFactor[2];
-		constants.colorFac.a = material.pbrData.baseColorFactor[3];
+	//Push actual glTF textures (which map to our loaded images) into the engine
+	for (fastgltf::Texture &texture : gltf.textures) {
+		AllocatedImage matTexture;
 
-		constants.metallicRoughnessFac.x = material.pbrData.metallicFactor;
-		constants.metallicRoughnessFac.y = material.pbrData.roughnessFactor;
-
-		sceneMaterialConstants[dataIndex] = constants; //Write it into the buffer
-
-		TsukiMaterialPass passType = (material.alphaMode == fastgltf::AlphaMode::Blend) ? TsukiMaterialPass::TSUKI_MATERIAL_TRANSPARENT : TsukiMaterialPass::TSUKI_MATERIAL_OPAQUE;
-
-		//Set the material resources to the defaults for now
-		GLTFMetallicRoughness::MaterialResources materialResources;
-		materialResources.colorImage = engine->_whiteImage;
-		materialResources.colorSampler = engine->_defaultSamplerLinear;
-		materialResources.metallicRoughnessImage = engine->_whiteImage;
-		materialResources.metallicRoughnessSampler = engine->_defaultSamplerLinear;
-
-		materialResources.dataBuffer = file.materialDataBuffer.buffer;
-		materialResources.dataBufferOffset = dataIndex * sizeof(GLTFMetallicRoughness::MaterialConstants);
-
-		if (material.pbrData.baseColorTexture.has_value()) {
-			size_t image = gltf.textures[material.pbrData.baseColorTexture.value().textureIndex].imageIndex.value();
-			size_t sampler = gltf.textures[material.pbrData.baseColorTexture.value().textureIndex].samplerIndex.value();
-
-			//TODO: Parse for PBR textures as well
-			materialResources.colorImage = images[image];
-			materialResources.colorSampler = file.samplers[sampler];
+		// Fallback check in case a glTF texture doesn't define an image index
+		if (texture.imageIndex.has_value()) {
+			matTexture = loadedImages[texture.imageIndex.value()];
+		}
+		else {
+			matTexture = engine->_errorCheckerboardImage;
 		}
 
-		newMaterial->data = engine->metallicRoughnessMaterial.writeMaterial(engine->_device, passType, materialResources, file.descriptorAllocator);
-		++dataIndex;
+		engine->materialTextures.push_back(matTexture);
+	}
+
+	// Load materials using the stable baseTextureIndex
+	int baseMaterialIndex = static_cast<int>(engine->materials.size());
+	for (fastgltf::Material &material : gltf.materials) {
+		TsukiMaterialData newMat;
+
+		newMat.colorFac = glm::vec4(
+			material.pbrData.baseColorFactor[0],
+			material.pbrData.baseColorFactor[1],
+			material.pbrData.baseColorFactor[2],
+			material.pbrData.baseColorFactor[3]);
+
+		newMat.metallicRoughnessFac = glm::vec4(
+			material.pbrData.metallicFactor,
+			material.pbrData.roughnessFactor,
+			0.0f, 0.0f);
+
+		newMat.emissionFac = glm::vec4(
+			material.emissiveFactor[0],
+			material.emissiveFactor[1],
+			material.emissiveFactor[2],
+			material.emissiveStrength.has_value() ? material.emissiveStrength.value() : 0.f);
+
+		newMat.pass = (material.alphaMode == fastgltf::AlphaMode::Blend) ?
+			TsukiMaterialPass::TSUKI_MATERIAL_TRANSPARENT : TsukiMaterialPass::TSUKI_MATERIAL_OPAQUE;
+
+		//Map the material textures to the texture index in the global descriptor array.
+		if (material.pbrData.baseColorTexture.has_value()) {
+			newMat.colorTextureIndex = baseTextureIndex + static_cast<int>(material.pbrData.baseColorTexture.value().textureIndex);
+		}
+		if (material.pbrData.metallicRoughnessTexture.has_value()) {
+			newMat.metallicRoughnessTextureIndex = baseTextureIndex + static_cast<int>(material.pbrData.metallicRoughnessTexture.value().textureIndex);
+		}
+		if (material.normalTexture.has_value()) {
+			newMat.normalTextureIndex = baseTextureIndex + static_cast<int>(material.normalTexture.value().textureIndex);
+		}
+		if (material.emissiveTexture.has_value()) {
+			newMat.emissiveTextureIndex = baseTextureIndex + static_cast<int>(material.emissiveTexture.value().textureIndex);
+		}
+
+		engine->materials.push_back(newMat);
 	}
 
 	//Load the meshes
 	std::vector<uint32_t> indices;
 	std::vector<Vertex> vertices;
+	std::vector<uint32_t> materialLookup;
 	for (fastgltf::Mesh &mesh : gltf.meshes) {
-		std::shared_ptr<Mesh> newMesh = std::make_shared<Mesh>();
+		std::shared_ptr<TsukiMesh> newMesh = std::make_shared<TsukiMesh>();
 		meshes.push_back(newMesh);
 		file.meshes[mesh.name.c_str()] = newMesh;
 		newMesh->name = mesh.name;
 
-		//indices.clear();
-		//vertices.clear();
+		indices.clear();
+		vertices.clear();
+		materialLookup.clear();
 
-		//In glTF, a primitive doesn't necessarily refer to a single triangle. It's composed of vertices and indices arranged in a certain
-		//way, and is the smallest renderable unit in that it contains a single material
 		for (auto &primitive : mesh.primitives) {
-			SubMesh subMesh;
-			subMesh.offset = static_cast<uint32_t>(indices.size());
-			subMesh.size = static_cast<uint32_t>(gltf.accessors[primitive.indicesAccessor.value()].count);
+			int materialIndex = primitive.materialIndex.has_value()
+				? baseMaterialIndex + primitive.materialIndex.value()
+				: 0;
 
 			size_t initialVertex = vertices.size();
-			//Load indices
 			{
 				fastgltf::Accessor &indexAccessor = gltf.accessors[primitive.indicesAccessor.value()];
 				indices.reserve(indices.size() + indexAccessor.count);
@@ -602,14 +214,12 @@ std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf3(TsukiEngine *eng
 					});
 			}
 
-			//Load the vertex positions
 			fastgltf::Accessor &posAccessor = gltf.accessors[primitive.findAttribute("POSITION")->second];
 			vertices.resize(vertices.size() + posAccessor.count);
 
 			fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, posAccessor, [&](glm::vec3 v, size_t idx) {
 				Vertex newVertex;
 				newVertex.pos = v;
-				//Set the rest of the vertex attributes to dummy values
 				newVertex.normal = glm::vec3(1, 0, 0);
 				newVertex.color = glm::vec4(1);
 				newVertex.uvX = 0;
@@ -617,7 +227,6 @@ std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf3(TsukiEngine *eng
 				vertices[initialVertex + idx] = newVertex;
 				});
 
-			//Load vertex normals
 			auto normals = primitive.findAttribute("NORMAL");
 			if (normals != primitive.attributes.end()) {
 				fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[(*normals).second], [&](glm::vec3 v, size_t idx) {
@@ -625,7 +234,6 @@ std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf3(TsukiEngine *eng
 					});
 			}
 
-			//Load UVs
 			auto uv = primitive.findAttribute("TEXCOORD_0");
 			if (uv != primitive.attributes.end()) {
 				fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[(*uv).second], [&](glm::vec2 v, size_t idx) {
@@ -634,7 +242,6 @@ std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf3(TsukiEngine *eng
 					});
 			}
 
-			//Load colors
 			auto colors = primitive.findAttribute("COLOR_0");
 			if (colors != primitive.attributes.end()) {
 				fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[(*colors).second], [&](glm::vec4 v, size_t idx) {
@@ -642,16 +249,13 @@ std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf3(TsukiEngine *eng
 					});
 			}
 
-			if (primitive.materialIndex.has_value()) {
-				subMesh.material = materials[primitive.materialIndex.value()];
-			}
-			else {
-				subMesh.material = materials[0];
-			}
-
-			newMesh->subMeshes.push_back(subMesh);
+			//Assign material index to each vertex of this primitive
+			materialLookup.resize(vertices.size(), static_cast<uint32_t>(materialIndex));
 		}
-		newMesh->meshBuffers = engine->uploadMesh(indices, vertices);
+
+		//std::cerr << "Uploading mesh..." << std::endl;
+		newMesh->indexCount = static_cast<uint32_t>(indices.size());
+		newMesh->meshBuffers = engine->uploadMesh(indices, vertices, materialLookup, baseMaterialIndex);
 	}
 
 	//Load the nodes
@@ -660,6 +264,8 @@ std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf3(TsukiEngine *eng
 
 		if (node.meshIndex.has_value()) { //If it has a mesh, assign it the corresponding mesh based on its index
 			newNode = std::make_shared<TMeshNode>();
+			TsukiMeshInstance meshInstance;
+			meshInstance.meshId = *node.meshIndex;
 			static_cast<TMeshNode *>(newNode.get())->mesh = meshes[*node.meshIndex];
 		}
 		else {
@@ -714,6 +320,7 @@ std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf3(TsukiEngine *eng
 		}
 	}
 
+	//std::cerr << "Finished loading glTF..." << std::endl;
 	return scene;
 }
 

@@ -88,6 +88,8 @@ struct AllocatedBuffer {
 	VmaAllocationInfo info;
 };
 
+constexpr uint32_t MAX_BINDLESS_TEXTURES = 4096;
+
 struct Vertex {
 	//Structured for efficient memory alignment
 	//Apparently, GPU's like aligning data structures to 4 byte slots
@@ -96,13 +98,14 @@ struct Vertex {
 	glm::vec3 normal;
 	float uvY;
 	glm::vec4 color;
-	glm::vec4 emission; //TODO: Read emission data into the vertices
 };
 
-struct GPUMeshBuffers {
+struct DeviceMeshBuffers {
 	AllocatedBuffer indexBuffer;
 	AllocatedBuffer vertexBuffer;
-	VkDeviceAddress vertexBufferAddress;
+	AllocatedBuffer materialLookupBuffer;
+
+	VkDescriptorSet perMeshDescriptorSet;
 };
 
 struct TsukiSubMeshSpan {
@@ -115,7 +118,6 @@ struct TsukiSubMeshSpan {
 struct GPUDrawPushConstants {
 	glm::mat4 worldMatrix;
 	glm::mat4 inverseTranspose;
-	VkDeviceAddress vertexBuffer;
 };
 
 //
@@ -141,13 +143,10 @@ struct TsukiMaterialPipeline {
 	VkPipelineLayout layout;
 };
 
-//Contains pretty much everything we need from a material, including the descriptor set corresponding to it,
-//its type (opaque or transparent), and the pipeline handles
+//Contains the material pipeline handles for selecting opaque/transparent paths
 struct TsukiMaterial {
 	TsukiMaterialPipeline *pipeline;
 	TsukiMaterialPass passType;
-
-	VkDescriptorSet descriptorSet;
 };
 
 //OBJECTS AND RENDERABLES
@@ -215,3 +214,5 @@ struct TNode : public TRenderable {
 //You can therefore use .lock() to check if the resource is still alive
 
 //glTF's (glb's, at least) store the base material colors in the material constants, in this implementation
+
+//Storage buffers can be bigger than uniform buffers

@@ -16,46 +16,54 @@
 #include <fastgltf/parser.hpp>
 #include <fastgltf/tools.hpp>
 
-struct GLTFMaterial {
-	TsukiMaterial data;
+struct TsukiMaterialData {
+	int colorTextureIndex{ -1 };
+	int metallicRoughnessTextureIndex{ -1 };
+	int emissiveTextureIndex{ -1 };
+	int normalTextureIndex{ -1 };
+
+	glm::vec4 colorFac;
+	glm::vec4 metallicRoughnessFac;
+	glm::vec4 emissionFac;
+
+	TsukiMaterialPass pass;
+	uint8_t passPadding[15];
+
+	glm::vec4 padding[11]; //Padding to meet the 256 bytes
 };
 
-struct SubMesh {
-	uint32_t offset;
-	uint32_t size;
-
-	std::shared_ptr<GLTFMaterial> material;
-};
-
-struct Mesh {
+struct TsukiMesh {
 	std::string name;
-	std::vector<SubMesh> subMeshes;
-	GPUMeshBuffers meshBuffers;
+	DeviceMeshBuffers meshBuffers;
+	uint32_t indexCount{ 0 };
+};
+
+struct TsukiMeshInstance {
+	int meshId;
+	std::shared_ptr<TsukiMesh> mesh;
+	glm::mat4 localTransform{ 1 };
+	glm::mat4 inverseTranspose{ 1 };
 };
 
 class TsukiEngine; //Forward declaration
 
 //TSUKIGLTF
 //===================================================================================================================
+
 struct TsukiGLTF {
-	std::unordered_map<std::string, std::shared_ptr<Mesh>> meshes;
 	std::unordered_map<std::string, std::shared_ptr<TNode>> nodes;
-	std::unordered_map<std::string, AllocatedImage> images;
-	std::unordered_map<std::string, std::shared_ptr<GLTFMaterial>> materials;
 
 	std::vector<std::shared_ptr<TNode>> rootNodes;
-
 	std::vector<VkSampler> samplers;
 
-	DynamicDescriptorAllocator descriptorAllocator;
-	AllocatedBuffer materialDataBuffer;
+	std::unordered_map<std::string, std::shared_ptr<TsukiMesh>> meshes;
+	std::unordered_map<std::string, AllocatedImage> images;
 
 	TsukiEngine *engine;
 
 	~TsukiGLTF() { clear(); }
 
 	virtual void queueDraw(const glm::mat4 &matrix, TsukiDrawContext &context);
-
 private:
 	void clear();
 };
@@ -64,11 +72,7 @@ private:
 //===================================================================================================================
 
 namespace tsukiutil {
-	std::optional<std::vector<std::shared_ptr<Mesh>>> loadGltf(TsukiEngine *engine, std::filesystem::path filePath);
-
-	std::optional<std::shared_ptr<TsukiGLTF>> loadGltf2(TsukiEngine *engine, std::filesystem::path filePath);
-
-	std::optional<std::shared_ptr<TsukiGLTF>> loadGltf3(TsukiEngine *engine, std::filesystem::path filePath);
+	std::optional<std::shared_ptr<TsukiGLTF>> loadGltf(TsukiEngine *engine, std::filesystem::path filePath);
 
 	std::optional<AllocatedImage> loadGltfImage(TsukiEngine *engine, fastgltf::Asset &asset, fastgltf::Image &image);
 

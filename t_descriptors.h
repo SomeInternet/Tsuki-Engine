@@ -4,7 +4,7 @@
 struct DescriptorLayoutBuilder {
 	std::vector<VkDescriptorSetLayoutBinding> bindings;
 
-	void addBinding(uint32_t binding, VkDescriptorType type);
+	void addBinding(uint32_t binding, VkDescriptorType type, uint32_t descriptorCount = 1);
 	void clear();
 	VkDescriptorSetLayout build(VkDevice device, VkShaderStageFlags shaderStages, void *pNext = nullptr, VkDescriptorSetLayoutCreateFlags flags = 0);
 };
@@ -34,7 +34,7 @@ public:
 		float ratio; //Ratio of the descriptor to descriptor sets
 	};
 
-	void init(VkDevice device, uint32_t initialSets, std::span<PoolSizeRatio> poolRatios);
+	void init(VkDevice device, uint32_t maxSets, std::span<PoolSizeRatio> poolRatios, VkDescriptorPoolCreateFlags flags = 0);
 	void clearPools(VkDevice device);
 	void destroyPools(VkDevice device);
 
@@ -45,9 +45,10 @@ private:
 	//to ready pools. If it fails, we place it into the full pools vector and attempt to get another pool. Get pool will
 	//create a new pool if all pools are filled
 	VkDescriptorPool getPool(VkDevice device);
-	VkDescriptorPool createPool(VkDevice device, uint32_t setCount, std::span<PoolSizeRatio> poolRatios);
+	VkDescriptorPool createPool(VkDevice device, uint32_t setCount, std::span<PoolSizeRatio> poolRatios, VkDescriptorPoolCreateFlags flags = 0);
 
 	std::vector<PoolSizeRatio> ratios;
+	VkDescriptorPoolCreateFlags flags{ 0 };
 	std::vector<VkDescriptorPool> fullPools;
 	std::vector<VkDescriptorPool> readyPools;
 
@@ -62,6 +63,7 @@ struct DescriptorWriter {
 	std::vector<VkWriteDescriptorSet> writes;
 
 	void writeImage(int binding, VkImageView imageView, VkSampler sampler, VkImageLayout layout, VkDescriptorType type);
+	void writeImageArray(int binding, VkImageView *imageViews, uint32_t count, VkSampler sampler, VkImageLayout layout, VkDescriptorType type);
 	void writeBuffer(int binding, VkBuffer buffer, size_t size, size_t offset, VkDescriptorType type);
 
 	void clear();
