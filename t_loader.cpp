@@ -26,6 +26,7 @@ void TsukiGLTF::clear() { //TODO: Verify
 	for (auto &[key, value] : meshes) {
 		engine->destroyBuffer(value->meshBuffers.indexBuffer);
 		engine->destroyBuffer(value->meshBuffers.vertexBuffer);
+		engine->destroyBuffer(value->meshBuffers.materialLookupBuffer);
 	}
 
 	//Destroy the images
@@ -33,11 +34,6 @@ void TsukiGLTF::clear() { //TODO: Verify
 		if (value.image == engine->_errorCheckerboardImage.image) { continue; } //Excepting the error checkerboard, which belongs to the engine
 
 		engine->destroyImage(value);
-	}
-
-	//Destroy the samplers
-	for (auto &sampler : samplers) {
-		vkDestroySampler(device, sampler, nullptr);
 	}
 }
 
@@ -113,6 +109,7 @@ std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf(TsukiEngine *engi
 	std::vector<AllocatedImage> loadedImages;
 	loadedImages.reserve(gltf.images.size());
 
+	//TODO: Make sure the images are loaded to an exportable image
 	for (fastgltf::Image &image : gltf.images) {
 		std::optional<AllocatedImage> texture = tsukiutil::loadGltfImage(engine, gltf, image);
 
@@ -129,6 +126,7 @@ std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf(TsukiEngine *engi
 	int baseTextureIndex = static_cast<int>(engine->materialTextures.size());
 
 	//Push actual glTF textures (which map to our loaded images) into the engine
+	//Textures are images and samplers.
 	for (fastgltf::Texture &texture : gltf.textures) {
 		AllocatedImage matTexture;
 
@@ -143,7 +141,7 @@ std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf(TsukiEngine *engi
 		engine->materialTextures.push_back(matTexture);
 	}
 
-	// Load materials using the stable baseTextureIndex
+	//Load materials
 	int baseMaterialIndex = static_cast<int>(engine->materials.size());
 	for (fastgltf::Material &material : gltf.materials) {
 		TsukiMaterialData newMat;

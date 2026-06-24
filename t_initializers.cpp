@@ -80,19 +80,19 @@ VkSemaphoreCreateInfo tsukiinit::tSemaphoreCreateInfo(VkSemaphoreCreateFlags fla
 }
 
 VkSubmitInfo2 tsukiinit::tSubmitInfo(VkCommandBufferSubmitInfo *cmd, VkSemaphoreSubmitInfo *signalSemaphoreInfo,
-    VkSemaphoreSubmitInfo *waitSemaphoreInfo) {
+    VkSemaphoreSubmitInfo *waitSemaphoreInfo, uint32_t signalSemaphoreInfoCount /*= 1*/, uint32_t waitSemaphoreInfoCount /*= 1*/) {
     VkSubmitInfo2 info{};
 
     info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
     info.pNext = nullptr;
 
     //Semaphore that the queue waits on before executing this command buffer
-    info.waitSemaphoreInfoCount = (waitSemaphoreInfo == nullptr) ? 0 : 1;
+    info.waitSemaphoreInfoCount = (waitSemaphoreInfo == nullptr) ? 0 : waitSemaphoreInfoCount;
     info.pWaitSemaphoreInfos = waitSemaphoreInfo;
 
     //Semaphore that the Vulkan queue signals signals upon this command buffer executing
-    info.signalSemaphoreInfoCount = (signalSemaphoreInfo == nullptr) ? 0 : 1;
-    info.pSignalSemaphoreInfos = signalSemaphoreInfo;;
+    info.signalSemaphoreInfoCount = (signalSemaphoreInfo == nullptr) ? 0 : signalSemaphoreInfoCount;
+    info.pSignalSemaphoreInfos = signalSemaphoreInfo;
 
     info.commandBufferInfoCount = 1;
     info.pCommandBufferInfos = cmd;

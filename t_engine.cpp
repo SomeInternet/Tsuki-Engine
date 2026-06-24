@@ -244,29 +244,15 @@ void TsukiEngine::init() {
     _materialDataBuffer = createBuffer(1024 * sizeof(TsukiMaterialData),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VMA_MEMORY_USAGE_GPU_ONLY);
+    _mainDeletionQueue.push([&, this] {
+        destroyBuffer(_materialDataBuffer);
+        });
     
     //Load the Cornell Box scene
     std::string cornellBoxPath = "./Models/cornellbox.glb";
     auto cornellBoxFile = tsukiutil::loadGltf(this, cornellBoxPath);
     assert(cornellBoxFile.has_value());
     loadedScenes["Cornell Box"] = *cornellBoxFile;
-
-    //Create the GPU material data buffer after materials are loaded
-    //if (!materials.empty()) {
-    //    
-
-    //    AllocatedBuffer stagingMat = createBuffer(materials.size() * sizeof(TsukiMaterialData),
-    //        VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
-    //    memcpy(stagingMat.allocation->GetMappedData(), materials.data(), materials.size() * sizeof(TsukiMaterialData));
-
-    //    immediateSubmit([&](VkCommandBuffer cmd) {
-    //        VkBufferCopy copy{};
-    //        copy.size = materials.size() * sizeof(TsukiMaterialData);
-    //        vkCmdCopyBuffer(cmd, stagingMat.buffer, _materialDataBuffer.buffer, 1, &copy);
-    //        });
-
-    //    destroyBuffer(stagingMat);
-    //}
 
 	_isInit = true;
 }
@@ -276,8 +262,6 @@ void TsukiEngine::cleanup() {
         vkDeviceWaitIdle(_device);
 
         loadedScenes.clear();
-
-        destroyBuffer(_materialDataBuffer);
 
         for (int i = 0; i < FRAMES_IN_FLIGHT; ++i) {
             vkDestroyCommandPool(_device, _frames[i]._commandPool, nullptr);
@@ -289,6 +273,8 @@ void TsukiEngine::cleanup() {
         }
 
         metallicRoughnessMaterial.clearResources(_device);
+
+        destroyBuffer(cudaImageBuffer);
 
         _mainDeletionQueue.flush();
 
@@ -398,7 +384,10 @@ void TsukiEngine::draw() {
     VkSemaphoreSubmitInfo waitSemaphoreSubmitInfo = tsukiinit::tSemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
         getCurrFrame()._swapChainSemaphore); //Wait on the swap chain semaphore to begin writing to the image (when we receive the image, it's safe to write to)
 #if CUDA_TEST
-    waitSemaphoreSubmitInfo.pNext = &waitCudaSemaphoreSubmitInfo;
+    std::vector<VkSemaphoreSubmitInfo> waitSemaphoreSubmitInfos = {
+        waitSemaphoreSubmitInfo,
+        waitCudaSemaphoreSubmitInfo
+    };
 
     //Define the submit info for the CUDA signal semaphore
     //TODO: Optimize
@@ -408,9 +397,16 @@ void TsukiEngine::draw() {
     VkSemaphoreSubmitInfo signalSemaphoreSubmitInfo = tsukiinit::tSemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, 
         _renderSemaphores[swapChainImageIndex]); //Signal that rendering is complete afterwards (we can now present)
 #if CUDA_TEST
-    signalSemaphoreSubmitInfo.pNext = &signalCudaSemaphoreSubmitInfo;
-#endif
+    std::vector<VkSemaphoreSubmitInfo> signalSemaphoreSubmitInfos = {
+        signalSemaphoreSubmitInfo,
+        signalCudaSemaphoreSubmitInfo
+    };
+    VkSubmitInfo2 submit = tsukiinit::tSubmitInfo(&commandBufferSubmitInfo, signalSemaphoreSubmitInfos.data(), waitSemaphoreSubmitInfos.data(), 
+        signalSemaphoreSubmitInfos.size(), waitSemaphoreSubmitInfos.size());
+#else
     VkSubmitInfo2 submit = tsukiinit::tSubmitInfo(&commandBufferSubmitInfo, &signalSemaphoreSubmitInfo, &waitSemaphoreSubmitInfo);
+#endif
+    
     VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submit, getCurrFrame()._renderFence));
 
     //TODO: Present
@@ -771,6 +767,7 @@ DeviceMeshBuffers TsukiEngine::uploadMesh(std::span<uint32_t> indices, std::span
     mesh.materialLookupBuffer = createExternalBuffer(materialLookupSize,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VMA_MEMORY_USAGE_GPU_ONLY);
+    //The TsukiGLTF destructor will destroy these buffers
 
     //Giant staging buffer for us to place our data into
     {
@@ -1178,8 +1175,7 @@ void TsukiEngine::initDescriptors() {
     //Per-frame descriptor pools
     for (int i = 0; i < FRAMES_IN_FLIGHT; ++i) {
         std::vector<DynamicDescriptorAllocator::PoolSizeRatio> framePoolSizes = {
-            {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3},
-            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3}
+            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1}
         };
 
         _frames[i]._frameDescriptors = DynamicDescriptorAllocator{};
@@ -1317,6 +1313,9 @@ void TsukiEngine::initCudaData() {
     //Default block size is 256MB, so this allocates about 1GB of VRAM
 
     VK_CHECK(vmaCreatePool(_allocator, &poolCreateInfo, &_vmaExternalPool));
+    _mainDeletionQueue.push([&] {
+            vmaDestroyPool(_allocator, _vmaExternalPool);
+        });
 
     //Allocate device buffer for CUDA draws
 
@@ -1802,6 +1801,9 @@ void TsukiEngine::createLogicalDevice() {
     VkPhysicalDeviceVulkan12Features vk12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
     vk12.bufferDeviceAddress = VK_TRUE;
     vk12.descriptorIndexing = VK_TRUE;
+    vk12.storageBuffer8BitAccess = VK_TRUE;
+    vk12.uniformAndStorageBuffer8BitAccess = VK_TRUE;
+    vk12.shaderInt8 = VK_TRUE;
     vk12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
     vk12.descriptorBindingPartiallyBound = VK_TRUE;
     vk12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
@@ -1947,11 +1949,14 @@ bool TsukiEngine::isDeviceSuitable(VkPhysicalDevice device) { //TODO: Update
 
     vkGetPhysicalDeviceFeatures2(device, &supportedFeatures2);
 
-	bool supportsRequiredFeatures =
+    bool supportsRequiredFeatures =
         supportedFeatures2.features.samplerAnisotropy &&
         vk11.shaderDrawParameters &&
         vk12.bufferDeviceAddress &&
         vk12.descriptorIndexing &&
+        vk12.storageBuffer8BitAccess &&
+        vk12.uniformAndStorageBuffer8BitAccess &&
+        vk12.shaderInt8 &&
         vk12.shaderSampledImageArrayNonUniformIndexing &&
         vk12.descriptorBindingPartiallyBound &&
         vk12.descriptorBindingSampledImageUpdateAfterBind &&

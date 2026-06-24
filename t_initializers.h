@@ -18,7 +18,7 @@ namespace tsukiinit {
     VkSemaphoreCreateInfo tSemaphoreCreateInfo(VkSemaphoreCreateFlags flags = 0);
 
     VkSubmitInfo2 tSubmitInfo(VkCommandBufferSubmitInfo *cmd, VkSemaphoreSubmitInfo *signalSemaphoreInfo,
-        VkSemaphoreSubmitInfo *waitSemaphoreInfo);
+        VkSemaphoreSubmitInfo *waitSemaphoreInfo, uint32_t signalSemaphoreInfoCount = 1, uint32_t waitSemaphoreInfoCount = 1);
     VkPresentInfoKHR tPresentInfo();
 
     VkRenderingAttachmentInfo tAttachmentInfo(VkImageView view, VkClearValue *clear, VkImageLayout layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
