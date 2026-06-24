@@ -101,10 +101,14 @@ float4 fragMain(VSOutput fsInput) : SV_Target {
     TsukiMaterialData mat = materialDataArray[fsInput.materialIndex];
 
     float3 texColor = float3(1, 1, 1);
+    float3 emissionColor = mat.emissionFac.rgb;
     if (mat.colorTextureIndex >= 0) {
         texColor = textures[NonUniformResourceIndex(mat.colorTextureIndex)].Sample(defaultSampler, fsInput.uv).rgb;
     }
+    if (mat.emissiveTextureIndex >= 0) {
+        emissionColor = textures[NonUniformResourceIndex(mat.emissiveTextureIndex)].Sample(defaultSampler, fsInput.uv).rgb;
+    }
     float3 color = fsInput.color * mat.colorFac.rgb;
 
-    return float4(lambertian * color, 1);
+    return max(float4(lambertian * color, 1), float4(emissionColor, 1));
 }
