@@ -118,7 +118,7 @@ WindowsSecurityAttributes::~WindowsSecurityAttributes()
 
 //MATERIALS
 //===================================================================================================================
-void GLTFMetallicRoughness::buildPipelines(TsukiEngine *engine) {
+void TsukiMaterialPassPipelines::buildPipelines(TsukiEngine *engine) {
     VkShaderModule meshShader;
     if (!tsukiutil::loadShaderModule("./Shaders/meshshader.spv", engine->_device, &meshShader)) {
         std::cerr << "Error building mesh shader" << std::endl;
@@ -168,7 +168,7 @@ void GLTFMetallicRoughness::buildPipelines(TsukiEngine *engine) {
 
     vkDestroyShaderModule(engine->_device, meshShader, nullptr);
 }
-void GLTFMetallicRoughness::clearResources(VkDevice device) {
+void TsukiMaterialPassPipelines::clearResources(VkDevice device) {
     vkDestroyPipelineLayout(device, opaquePipeline.layout, nullptr);
 
     vkDestroyPipeline(device, opaquePipeline.pipeline, nullptr);
@@ -272,7 +272,7 @@ void TsukiEngine::cleanup() {
             _frames[i]._deletionQueue.flush();
         }
 
-        metallicRoughnessMaterial.clearResources(_device);
+        materialPipelines.clearResources(_device);
 
         destroyBuffer(cudaImageBuffer);
 
@@ -458,6 +458,27 @@ void TsukiEngine::run() {
                 ImGui::InputFloat4("data2", (float *)&selected.data.data2);
                 ImGui::InputFloat4("data3", (float *)&selected.data.data3);
                 ImGui::InputFloat4("data4", (float *)&selected.data.data4);
+                ImGui::End();
+            }
+
+            if (ImGui::Begin("Renderer")) {
+                std::vector<const char*> items = { "Vulkan Viewport (Lambertian)", "CUDA Pathtraced" };
+                static const char *selected = items[0];
+
+                if (ImGui::BeginCombo("Render Mode", selected)) {
+                    for (int i = 0; i < items.size(); ++i) {
+                        bool isSelected = (selected == items[i]);
+                        if (ImGui::Selectable(items[i], isSelected)) {
+                            selected = items[i];
+                        }
+
+                        if (isSelected) {
+                            ImGui::SetItemDefaultFocus();
+                            _renderMode = static_cast<TsukiRenderMode>(i);
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
                 ImGui::End();
             }
 
@@ -1284,7 +1305,7 @@ void TsukiEngine::initBackgroundPipelines() { //TODO: Just copy this over to ini
         vkDestroyPipeline(_device, gradient.pipeline, nullptr);
         });
 
-    metallicRoughnessMaterial.buildPipelines(this);
+    materialPipelines.buildPipelines(this);
 }
 
 void TsukiEngine::initCudaData() {
@@ -1561,7 +1582,7 @@ void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer) {
     //Bind the two global descriptor sets
     VkDescriptorSet globalSets[] = { sceneDescriptor, _bindlessDescriptorSet };
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-        metallicRoughnessMaterial.opaquePipeline.layout, 0, 2, globalSets, 0, nullptr);
+        materialPipelines.opaquePipeline.layout, 0, 2, globalSets, 0, nullptr);
 
     //Draw loop
     auto draw = [&](const TsukiVulkanRender &renderable) {
@@ -1696,7 +1717,7 @@ void TsukiEngine::initDefaultMeshData() {
         });
 
     defaultData.passType = TsukiMaterialPass::TSUKI_MATERIAL_OPAQUE;
-    defaultData.pipeline = &metallicRoughnessMaterial.opaquePipeline;
+    defaultData.pipeline = &materialPipelines.opaquePipeline;
 }
 //End Chapter 3
 

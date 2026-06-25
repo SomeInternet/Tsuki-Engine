@@ -304,17 +304,17 @@ std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf(TsukiEngine *engi
 			sceneNode->children.push_back(nodes[child]);
 			nodes[child]->parent = sceneNode;
 		}
+	}
 
-		//Find the root nodes
-		for (auto &node : nodes) {
-			if (node->parent.lock() == nullptr) {
-				//The advantage that weak pointers have over raw pointers is protection against dangling
-				//To read or modify the data, you must temporarily promote the weak pointer to a shared pointer via .lock()
-				//.lock() returns nullptr if the resource pointed to no longer exists
-				//You can therefore use .lock() to check if the resource is still alive
-				file.rootNodes.push_back(node);
-				node->updateTransform(glm::mat4(1));
-			}
+	//Find the root nodes
+	for (auto &node : nodes) {
+		if (node->parent.lock() == nullptr) {
+			//The advantage that weak pointers have over raw pointers is protection against dangling
+			//To read or modify the data, you must temporarily promote the weak pointer to a shared pointer via .lock()
+			//.lock() returns nullptr if the resource pointed to no longer exists
+			//You can therefore use .lock() to check if the resource is still alive
+			file.rootNodes.push_back(node);
+			node->updateTransform(glm::mat4(1));
 		}
 	}
 
@@ -342,7 +342,7 @@ std::optional<AllocatedImage> tsukiutil::loadGltfImage(TsukiEngine *engine, fast
 				extent.height = height;
 				extent.depth = 1;
 
-				newImage = engine->createImage(data, extent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+				newImage = engine->createExternalImage(data, extent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
 
 				stbi_image_free(data);
 			}
@@ -356,7 +356,7 @@ std::optional<AllocatedImage> tsukiutil::loadGltfImage(TsukiEngine *engine, fast
 				extent.height = height;
 				extent.depth = 1;
 
-				newImage = engine->createImage(data, extent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+				newImage = engine->createExternalImage(data, extent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
 			}
 		},
 		[&](fastgltf::sources::BufferView &view) { //Case 3) Image is embedded in a binary glb file
@@ -374,7 +374,7 @@ std::optional<AllocatedImage> tsukiutil::loadGltfImage(TsukiEngine *engine, fast
 						imagesize.height = height;
 						imagesize.depth = 1;
 
-						newImage = engine->createImage(data, imagesize, VK_FORMAT_R8G8B8A8_UNORM,
+						newImage = engine->createExternalImage(data, imagesize, VK_FORMAT_R8G8B8A8_UNORM,
 							VK_IMAGE_USAGE_SAMPLED_BIT,false);
 
 						stbi_image_free(data);

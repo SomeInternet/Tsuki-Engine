@@ -16,6 +16,11 @@ void TsukiInput::keyCallback(GLFWwindow *window, int key, int scancode, int acti
 		if (action == GLFW_PRESS) { input.cameraLocked = !input.cameraLocked; }
 	}
 
+	if (key == GLFW_KEY_LEFT_CONTROL) {
+		if (action == GLFW_PRESS) { input.keyLCtrlHeld = true; }
+		if (action == GLFW_RELEASE) { input.keyLCtrlHeld = false; }
+	}
+
 	ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
 }
 
@@ -32,7 +37,9 @@ void TsukiInput::mouseButtonCallback(GLFWwindow *window, int button, int action,
 		if (action == GLFW_RELEASE) { input.mouseRightHeld = false; }
 	}
 
-	ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
+	if (!input.keyLCtrlHeld) {
+		ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
+	}
 }
 
 void TsukiInput::cursorPosCallback(GLFWwindow *window, double xPos, double yPos) {
@@ -49,7 +56,7 @@ void TsukiInput::cursorPosCallback(GLFWwindow *window, double xPos, double yPos)
 	float deltaX = static_cast<float>(input.prevXPos - xPos);
 	float deltaY = static_cast<float>(input.prevYPos - yPos);
 
-	if (!input.cameraLocked) {
+	if (!input.cameraLocked && input.keyLCtrlHeld) {
 		if (input.mouseLeftHeld) {
 			camera.rotDirty = true;
 			camera.viewDirty = true;
@@ -70,17 +77,21 @@ void TsukiInput::cursorPosCallback(GLFWwindow *window, double xPos, double yPos)
 	input.prevXPos = xPos;
 	input.prevYPos = yPos;
 
-	ImGui_ImplGlfw_CursorPosCallback(window, xPos, yPos);
+	if (!input.keyLCtrlHeld) {
+		ImGui_ImplGlfw_CursorPosCallback(window, xPos, yPos);
+	}
 }
 
 void TsukiInput::scrollCallback(GLFWwindow *window, double xOffset, double yOffset) {
 	TsukiInput &input = reinterpret_cast<TsukiEngine *>(glfwGetWindowUserPointer(window))->input;
 	TsukiCamera &camera = reinterpret_cast<TsukiEngine *>(glfwGetWindowUserPointer(window))->camera;
 
-	if (!input.cameraLocked) {
+	if (!input.cameraLocked && input.keyLCtrlHeld) {
 		camera.viewDirty = true;
 		camera.radius -= static_cast<float>(yOffset) * .1f; //Zoom
 	}
 
-	ImGui_ImplGlfw_ScrollCallback(window, xOffset, yOffset);
+	if (!input.keyLCtrlHeld) {
+		ImGui_ImplGlfw_ScrollCallback(window, xOffset, yOffset);
+	}
 }

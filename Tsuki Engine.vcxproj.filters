@@ -107,7 +107,7 @@
     <ClInclude Include="t_interop.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="t_mesh.h">
+    <ClInclude Include="t_geometry.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

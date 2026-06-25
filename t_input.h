@@ -18,6 +18,7 @@ struct TsukiInput {
 	bool keyAHeld{ false };
 	bool keySHeld{ false };
 	bool keyDHeld{ false };
+	bool keyLCtrlHeld{ false };
 
 	static void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods);
 	static void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods);

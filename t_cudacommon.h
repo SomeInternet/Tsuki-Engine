@@ -5,6 +5,13 @@
 
 #include "vulkan/vulkan_core.h"
 
+#define GLM_FORCE_CUDA 
+#define GLM_FORCE_RADIANS 
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
+#include "t_geometry.h"
+
 #define CUDA_CHECK(x)																																\
 	do {																																			\
 		cudaError_t err = x;																														\
@@ -33,6 +40,9 @@ struct u8vec4 {
 	uint8_t a;
 };
 
+struct TsukiCamera;
+struct TsukiCudaMesh;
+
 struct TsukiCudaData { //TODO: This bottlenecks performance. I might wanna improve this later...
 	cudaExternalSemaphore_t _cudaSampleFinishedSemaphore;
 	cudaExternalSemaphore_t _cudaCopyFinishedSemaphore;
@@ -51,9 +61,15 @@ struct TsukiCudaData { //TODO: This bottlenecks performance. I might wanna impro
 	void *vertexBuffer;
 	int vertexBufferSize{ 0 };
 
+	TsukiCudaMesh *meshes;
+	bool asBuilt{ false };
+	bool asDirty{ false };
+
 	bool resetImage{ false };
 
 	unsigned numSamples;
+
+	TsukiCamera *camera;
 };
 
 struct TsukiCudaMaterialData {
@@ -63,10 +79,13 @@ struct TsukiCudaMaterialData {
 struct TsukiCudaMesh {
 	int indexBufferSize{ 0 };
 	cudaExternalMemory_t indexBufferMemory;
+	uint32_t *d_indexBuffer;
 
 	int vertexBufferSize{ 0 };
 	cudaExternalMemory_t vertexBufferMemory;
+	Vertex *d_vertexBuffer;
 
 	int materialLookupBufferSize{ 0 };
 	cudaExternalMemory_t MaterialLookupBufferMemory;
+	int *d_materialLookupBuffer;
 };

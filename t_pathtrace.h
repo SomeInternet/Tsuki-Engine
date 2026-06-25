@@ -10,12 +10,12 @@
 #include <vulkan/vk_enum_string_helper.h>
 
 #define GLM_FORCE_CUDA 
-
 #define GLM_FORCE_RADIANS 
-
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace tsukicudapathtrace {
 	void testImage(TsukiCudaData *cudaData, int width, int height);
+
+	void testRayTrace(TsukiCudaData *cudaData, int width, int height);
 };

@@ -95,7 +95,7 @@ struct TsukiMaterialResources { //TODO
 	uint32_t dataBufferOffset;
 };
 
-struct GLTFMetallicRoughness {
+struct TsukiMaterialPassPipelines {
 	TsukiMaterialPipeline opaquePipeline;
 	TsukiMaterialPipeline transparentPipeline;
 
@@ -126,6 +126,10 @@ struct TsukiDrawContext {
 	TsukiEngine *engine;
 	std::vector<TsukiVulkanRender> opaqueObjects;
 	std::vector<TsukiVulkanRender> transparentObjects;
+};
+
+enum class TsukiRenderMode : uint8_t {
+	TSUKI_RENDER_MODE_VIEWPORT_FORWARD, TSUKI_RENDER_MODE_PATHTRACED_CUDA
 };
 
 class TsukiEngine {
@@ -205,10 +209,9 @@ public:
 	AllocatedBuffer _materialDataBuffer; //GPU buffer holding TsukiMaterialData array
 
 	TsukiMaterial defaultData;
-	GLTFMetallicRoughness metallicRoughnessMaterial;
+	TsukiMaterialPassPipelines materialPipelines;
 
 	TsukiDrawContext _mainDrawContext;
-	std::unordered_map<std::string, std::shared_ptr<TNode>> loadedNodes;
 	//
 
 	//Chapter 5
@@ -220,7 +223,7 @@ public:
 	//BETTER GLTF LOADING
 	std::vector<std::shared_ptr<TsukiMesh>> meshes;
 	std::vector<TsukiMaterialData> materials; //One big global material buffer
-	std::vector<AllocatedImage> materialTextures;
+	std::vector<AllocatedImage> materialTextures; //References the textures, but the glTF object owns them
 
 	//BINDLESS MATERIAL DESCRIPTORS
 	VkDescriptorSet _bindlessDescriptorSet;
@@ -234,6 +237,8 @@ public:
 	VkSemaphore cudaWriteToBufferSemaphore;
 	VkSemaphore cudaRenderDoneSemaphore;
 	TsukiCudaData cudaData;
+
+	TsukiRenderMode _renderMode{ TsukiRenderMode::TSUKI_RENDER_MODE_VIEWPORT_FORWARD };
 
 	//IMGUI
 	VkFence _immFence;

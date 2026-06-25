@@ -72,11 +72,11 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <IncludePath>$(CUDAPath)\include;$(IncludePath)</IncludePath>
+    <IncludePath>$(CUDAPath)\include;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2\include\cccl;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2\include\cccl\thrust;$(IncludePath)</IncludePath>
     <LibraryPath>$(CUDAPath)\lib\x64;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IncludePath>$(CUDAPath)\include;$(IncludePath)</IncludePath>
+    <IncludePath>$(CUDAPath)\include;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2\include\cccl;$(IncludePath)</IncludePath>
     <LibraryPath>$(CUDAPath)\lib\x64;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -145,12 +145,12 @@
     <ClInclude Include="t_camera.h" />
     <ClInclude Include="t_descriptors.h" />
     <ClInclude Include="t_engine.h" />
+    <ClInclude Include="t_geometry.h" />
     <ClInclude Include="t_images.h" />
     <ClInclude Include="t_initializers.h" />
     <ClInclude Include="t_input.h" />
     <ClInclude Include="t_interop.h" />
     <ClInclude Include="t_loader.h" />
-    <ClInclude Include="t_mesh.h" />
     <ClInclude Include="t_pathtrace.h" />
     <ClInclude Include="t_pipelines.h" />
     <ClInclude Include="t_types.h" />
