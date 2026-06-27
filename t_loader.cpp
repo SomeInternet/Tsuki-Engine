@@ -14,6 +14,11 @@
 //TSUKIGLTF
 //===================================================================================================================
 void TsukiGLTF::queueDraw(const glm::mat4 &matrix, TsukiDrawContext &context) {
+	if (!loadedToTlas && context.engine->_renderMode == TsukiRenderMode::TSUKI_RENDER_MODE_PATHTRACED_CUDA) {
+		loadedToTlas = true;
+		engine->_tlasDirty = true;
+	}
+
 	for (auto &rootNode : rootNodes) {
 		rootNode->queueDraw(matrix, context);
 	}
@@ -25,7 +30,10 @@ void TsukiGLTF::clear() { //TODO: Verify
 	//Deallocate all the buffers for the meshes
 	for (auto &[key, value] : meshes) {
 		engine->destroyBuffer(value->meshBuffers.indexBuffer);
-		engine->destroyBuffer(value->meshBuffers.vertexBuffer);
+		engine->destroyBuffer(value->meshBuffers.posBuffer);
+		engine->destroyBuffer(value->meshBuffers.normalBuffer);
+		engine->destroyBuffer(value->meshBuffers.colorBuffer);
+		engine->destroyBuffer(value->meshBuffers.uvBuffer);
 		engine->destroyBuffer(value->meshBuffers.materialLookupBuffer);
 	}
 
@@ -39,13 +47,14 @@ void TsukiGLTF::clear() { //TODO: Verify
 
 //TSUKIUTIL
 //===================================================================================================================
-
 std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf(TsukiEngine *engine, std::filesystem::path filePath) {
 	std::cerr << "Loading GLTF: " << filePath << std::endl;
 
 	std::shared_ptr<TsukiGLTF> scene = std::make_shared<TsukiGLTF>();
 
 	scene->engine = engine;
+
+	int baseMeshIndex = engine->_blas.size();
 
 	TsukiGLTF &file = *scene.get();
 
@@ -185,7 +194,10 @@ std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf(TsukiEngine *engi
 
 	//Load the meshes
 	std::vector<uint32_t> indices;
-	std::vector<Vertex> vertices;
+	std::vector<glm::vec4> positions;
+	std::vector<glm::vec4> normals;
+	std::vector<glm::vec4> colors;
+	std::vector<glm::vec2> uvs;
 	std::vector<uint32_t> materialLookup;
 	for (fastgltf::Mesh &mesh : gltf.meshes) {
 		std::shared_ptr<TsukiMesh> newMesh = std::make_shared<TsukiMesh>();
@@ -194,7 +206,10 @@ std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf(TsukiEngine *engi
 		newMesh->name = mesh.name;
 
 		indices.clear();
-		vertices.clear();
+		positions.clear();
+		normals.clear();
+		colors.clear();
+		uvs.clear();
 		materialLookup.clear();
 
 		for (auto &primitive : mesh.primitives) {
@@ -202,7 +217,7 @@ std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf(TsukiEngine *engi
 				? baseMaterialIndex + primitive.materialIndex.value()
 				: 0;
 
-			size_t initialVertex = vertices.size();
+			size_t initialVertex = positions.size();
 			{
 				fastgltf::Accessor &indexAccessor = gltf.accessors[primitive.indicesAccessor.value()];
 				indices.reserve(indices.size() + indexAccessor.count);
@@ -213,47 +228,46 @@ std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf(TsukiEngine *engi
 			}
 
 			fastgltf::Accessor &posAccessor = gltf.accessors[primitive.findAttribute("POSITION")->second];
-			vertices.resize(vertices.size() + posAccessor.count);
+			positions.resize(positions.size() + posAccessor.count);
+			normals.resize(positions.size(), glm::vec4(1, 0, 0, 0));
+			colors.resize(positions.size(), glm::vec4(1));
+			uvs.resize(positions.size(), glm::vec2(0));
 
 			fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, posAccessor, [&](glm::vec3 v, size_t idx) {
-				Vertex newVertex;
-				newVertex.pos = v;
-				newVertex.normal = glm::vec3(1, 0, 0);
-				newVertex.color = glm::vec4(1);
-				newVertex.uvX = 0;
-				newVertex.uvY = 0;
-				vertices[initialVertex + idx] = newVertex;
+				positions[initialVertex + idx] = glm::vec4(v, 1);
 				});
 
-			auto normals = primitive.findAttribute("NORMAL");
-			if (normals != primitive.attributes.end()) {
-				fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[(*normals).second], [&](glm::vec3 v, size_t idx) {
-					vertices[initialVertex + idx].normal = v;
+			auto normalsAttr = primitive.findAttribute("NORMAL");
+			if (normalsAttr != primitive.attributes.end()) {
+				fastgltf::iterateAccessorWithIndex<glm::vec3>(gltf, gltf.accessors[(*normalsAttr).second], [&](glm::vec3 v, size_t idx) {
+					normals[initialVertex + idx] = glm::vec4(v, 0);
 					});
 			}
 
 			auto uv = primitive.findAttribute("TEXCOORD_0");
 			if (uv != primitive.attributes.end()) {
 				fastgltf::iterateAccessorWithIndex<glm::vec2>(gltf, gltf.accessors[(*uv).second], [&](glm::vec2 v, size_t idx) {
-					vertices[initialVertex + idx].uvX = v.x;
-					vertices[initialVertex + idx].uvY = v.y;
+					uvs[initialVertex + idx] = v;
 					});
 			}
 
-			auto colors = primitive.findAttribute("COLOR_0");
-			if (colors != primitive.attributes.end()) {
-				fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[(*colors).second], [&](glm::vec4 v, size_t idx) {
-					vertices[initialVertex + idx].color = v;
+			auto colorsAttr = primitive.findAttribute("COLOR_0");
+			if (colorsAttr != primitive.attributes.end()) {
+				fastgltf::iterateAccessorWithIndex<glm::vec4>(gltf, gltf.accessors[(*colorsAttr).second], [&](glm::vec4 v, size_t idx) {
+					colors[initialVertex + idx] = v;
 					});
 			}
 
 			//Assign material index to each vertex of this primitive
-			materialLookup.resize(vertices.size(), static_cast<uint32_t>(materialIndex));
+			materialLookup.resize(positions.size(), static_cast<uint32_t>(materialIndex));
 		}
 
 		//std::cerr << "Uploading mesh..." << std::endl;
 		newMesh->indexCount = static_cast<uint32_t>(indices.size());
-		newMesh->meshBuffers = engine->uploadMesh(indices, vertices, materialLookup, baseMaterialIndex);
+		newMesh->meshBuffers = engine->uploadMesh(indices, positions, normals, colors, uvs, materialLookup, baseMaterialIndex);
+
+		//Build the BVH for the mesh
+		engine->_blas.push_back(tsukibvh::buildBVH(indices, positions, BVHHeuristic::SURFACE_AREA));
 	}
 
 	//Load the nodes
@@ -262,8 +276,9 @@ std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf(TsukiEngine *engi
 
 		if (node.meshIndex.has_value()) { //If it has a mesh, assign it the corresponding mesh based on its index
 			newNode = std::make_shared<TMeshNode>();
-			TsukiMeshInstance meshInstance;
-			meshInstance.meshId = *node.meshIndex;
+
+			reinterpret_cast<TMeshNode *>(newNode.get())->blasId = node.meshIndex.value() + baseMeshIndex;
+			//instance.transform = node.transform;
 			static_cast<TMeshNode *>(newNode.get())->mesh = meshes[*node.meshIndex];
 		}
 		else {

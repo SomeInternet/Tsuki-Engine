@@ -1,6 +1,7 @@
 #pragma once
 #include "t_types.h"
 #include "t_descriptors.h"
+#include "t_bvh.h"
 
 #include <unordered_map>
 #include <filesystem>
@@ -59,7 +60,12 @@ struct TsukiGLTF {
 	std::unordered_map<std::string, std::shared_ptr<TsukiMesh>> meshes;
 	std::unordered_map<std::string, AllocatedImage> images;
 
+	std::vector<BuildBVHNode> blasNodes;
+	std::vector<BuildTLASNode> tlasNodes;
+
 	TsukiEngine *engine;
+
+	bool loadedToTlas{ false };
 
 	~TsukiGLTF() { clear(); }
 

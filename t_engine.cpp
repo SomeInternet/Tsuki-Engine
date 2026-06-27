@@ -25,6 +25,8 @@
 #include <aclapi.h>
 #include <dxgi1_2.h>
 
+#include "stb_image.h"
+
 #if _DEBUG
 constexpr bool enableValidationLayers = true;
 #else
@@ -126,8 +128,8 @@ void TsukiMaterialPassPipelines::buildPipelines(TsukiEngine *engine) {
 
     VkPushConstantRange matrixRange{};
     matrixRange.offset = 0;
-    matrixRange.size = sizeof(GPUDrawPushConstants);
-    matrixRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    matrixRange.size = sizeof(DrawPushConstants);
+    matrixRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayout layouts[] = {
         engine->_sceneDataDescriptorLayout,
@@ -188,9 +190,24 @@ void TMeshNode::queueDraw(const glm::mat4 &matrix, TsukiDrawContext &context) {
     vulkanRender.transform = nodeMatrix;
     vulkanRender.material = &context.engine->defaultData;
 
+    //TODO: implement transparent objects for the viewport?
     context.opaqueObjects.push_back(vulkanRender);
+    
+    //TODO: Push instance to the engine IF the mesh hasn't been loaded
+    if (!loadedToTlas && context.engine->_renderMode == TsukiRenderMode::TSUKI_RENDER_MODE_PATHTRACED_CUDA) {
+        loadedToTlas = true;
+        BLASInstance instance{};
+        instance.blasNodeId = blasId;
+        instance.transform = matrix * localTransform;
+        context.engine->_sceneInstances.push_back(instance);
 
-    TNode::queueDraw(matrix * localTransform, context);
+        context.engine->_tlasTransformations.push_back(nodeMatrix);
+        context.engine->_tlasTransformationsInverse.push_back(glm::inverse(nodeMatrix)); //TODO: Optimize
+
+        glm::mat3 nodeMatrix3 = glm::mat3(nodeMatrix);
+        context.engine->_tlasTransformationsInverseTranspose.push_back(glm::transpose(glm::inverse(nodeMatrix3)));
+    }
+    TNode::queueDraw(nodeMatrix, context);
 }
 
 //MAIN FUNCTIONS
@@ -208,6 +225,15 @@ void TsukiEngine::init() {
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); //GLFW was initially created for OpenGL contexts, so we tell it not to create an OpenGL context.
 	glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 	_window = glfwCreateWindow( WIDTH, HEIGHT, "Tsuki Engine", nullptr, nullptr);
+
+    int width, height, numChannels;
+    unsigned char *data = stbi_load("Assets/logo.png", &width, &height, &numChannels, 4); //Read in the image data to a buffer
+    GLFWimage logo{};
+    logo.width = width;
+    logo.height = height;
+    logo.pixels = data;
+    glfwSetWindowIcon(_window, 1, &logo);
+    stbi_image_free(data);
 
     glfwSetWindowUserPointer(_window, this); //Give the GLFW window a pointer to this instance of the engine
 
@@ -328,39 +354,38 @@ void TsukiEngine::draw() {
     VkCommandBufferBeginInfo commandBufferBeginInfo = tsukiinit::tCommandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT); //1-time command buffer (we re-record each frame)
     VK_CHECK(vkBeginCommandBuffer(commandBuffer, &commandBufferBeginInfo));
 
-    //Compute shader
-#if COMPUTE_BACKGROUND
-    //Transition image to writeable format
-    tsukiutil::transitionImageLayout(commandBuffer, _drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-
-    drawBackground(commandBuffer, swapChainImageIndex);
-
-    //Transition image to draw geometry
-    tsukiutil::transitionImageLayout(commandBuffer, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL); //Rasterization draws are optimized on color attachment optimal
-#endif
-#if CUDA_TEST
     //Copy CUDA compute image into draw image
-    tsukiutil::transitionImageLayout(commandBuffer, _drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    tsukiutil::copyBufferToImage(commandBuffer, _drawImage.image, cudaImageBuffer.buffer, { _drawImage.imageExtent.width, _drawImage.imageExtent.height }, 0);
-    
-    //Draw the CUDA compute background
-    tsukicudapathtrace::testImage(&cudaData, _drawImage.imageExtent.width, _drawImage.imageExtent.height);
+    if (_renderMode == TsukiRenderMode::TSUKI_RENDER_MODE_PATHTRACED_CUDA) {
+        tsukiutil::transitionImageLayout(commandBuffer, _drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        tsukiutil::copyBufferToImage(commandBuffer, _drawImage.image, cudaImageBuffer.buffer, { _drawImage.imageExtent.width, _drawImage.imageExtent.height }, 0);
 
-    //Transition image to draw geometry
-    tsukiutil::transitionImageLayout(commandBuffer, _drawImage.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL); //Rasterization draws are optimized on color attachment optimal
-#endif
-
+        //Draw the CUDA compute background
+        tsukicudapathtrace::testImage(&cudaData, _drawImage.imageExtent.width, _drawImage.imageExtent.height);
+    }
+    {
+        VkImageLayout prevLayout = (_renderMode == TsukiRenderMode::TSUKI_RENDER_MODE_PATHTRACED_CUDA) ? VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED;
+        tsukiutil::transitionImageLayout(commandBuffer, _drawImage.image, prevLayout, VK_IMAGE_LAYOUT_GENERAL);
+    }
 
     //Transition the depth image to a writable format
     tsukiutil::transitionImageLayout(commandBuffer, _depthImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
 
     //Draw geometry
-    drawGeometry(commandBuffer);
+    if (_renderMode == TsukiRenderMode::TSUKI_RENDER_MODE_VIEWPORT_FORWARD) {
+        drawBackground(commandBuffer, _drawImage.image); //Clear color doesn't allow for color attachment optimal format
+        tsukiutil::transitionImageLayout(commandBuffer, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        drawGeometry(commandBuffer);
+    }
+    else if (_renderMode == TsukiRenderMode::TSUKI_RENDER_MODE_PATHTRACED_CUDA) {
+        drawPathtraced(commandBuffer);
+    }
 
     //Transition the draw image and the swapchain image to execute copy
     //Recall that within these helpers, we set a barrier that prevents further execution until the instructions before (compute pass) is finished
     tsukiutil::transitionImageLayout(commandBuffer, _swapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    tsukiutil::transitionImageLayout(commandBuffer, _drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+    VkImageLayout prevLayout = (_renderMode == TsukiRenderMode::TSUKI_RENDER_MODE_PATHTRACED_CUDA) ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    tsukiutil::transitionImageLayout(commandBuffer, _drawImage.image, prevLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
     tsukiutil::copyImage(commandBuffer, _swapChainImages[swapChainImageIndex], _drawImage.image, _swapChainExtent, _drawExtent);
 
@@ -376,14 +401,13 @@ void TsukiEngine::draw() {
     VK_CHECK(vkEndCommandBuffer(commandBuffer));
 
     //Submit the command buffer to the queue
+    //TODO: Investigate this synchronization (I'm not sure I'm having the semaphores attached to the right pipeline stages...
+    //If deadlock occurs, just presignal a semaphore
     VkCommandBufferSubmitInfo commandBufferSubmitInfo = tsukiinit::tCommandBufferSubmitInfo(commandBuffer);
-#if CUDA_TEST
     VkSemaphoreSubmitInfo waitCudaSemaphoreSubmitInfo = tsukiinit::tSemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
         cudaRenderDoneSemaphore);
-#endif
     VkSemaphoreSubmitInfo waitSemaphoreSubmitInfo = tsukiinit::tSemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
         getCurrFrame()._swapChainSemaphore); //Wait on the swap chain semaphore to begin writing to the image (when we receive the image, it's safe to write to)
-#if CUDA_TEST
     std::vector<VkSemaphoreSubmitInfo> waitSemaphoreSubmitInfos = {
         waitSemaphoreSubmitInfo,
         waitCudaSemaphoreSubmitInfo
@@ -393,19 +417,19 @@ void TsukiEngine::draw() {
     //TODO: Optimize
     VkSemaphoreSubmitInfo signalCudaSemaphoreSubmitInfo = tsukiinit::tSemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
         cudaWriteToBufferSemaphore);
-#endif
     VkSemaphoreSubmitInfo signalSemaphoreSubmitInfo = tsukiinit::tSemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, 
         _renderSemaphores[swapChainImageIndex]); //Signal that rendering is complete afterwards (we can now present)
-#if CUDA_TEST
     std::vector<VkSemaphoreSubmitInfo> signalSemaphoreSubmitInfos = {
         signalSemaphoreSubmitInfo,
         signalCudaSemaphoreSubmitInfo
     };
+
+    //TODO: Change submitInfos
+    int numWaitSemaphores = (_renderMode == TsukiRenderMode::TSUKI_RENDER_MODE_PATHTRACED_CUDA) ? waitSemaphoreSubmitInfos.size() : 1;
+    int numSignalSemaphores = (_renderMode == TsukiRenderMode::TSUKI_RENDER_MODE_PATHTRACED_CUDA) ? signalSemaphoreSubmitInfos.size() : 1;
+
     VkSubmitInfo2 submit = tsukiinit::tSubmitInfo(&commandBufferSubmitInfo, signalSemaphoreSubmitInfos.data(), waitSemaphoreSubmitInfos.data(), 
-        signalSemaphoreSubmitInfos.size(), waitSemaphoreSubmitInfos.size());
-#else
-    VkSubmitInfo2 submit = tsukiinit::tSubmitInfo(&commandBufferSubmitInfo, &signalSemaphoreSubmitInfo, &waitSemaphoreSubmitInfo);
-#endif
+        numSignalSemaphores, numWaitSemaphores);
     
     VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submit, getCurrFrame()._renderFence));
 
@@ -446,23 +470,34 @@ void TsukiEngine::run() {
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
 
-            if (ImGui::Begin("Background")) {
+            if (ImGui::Begin("Viewport")) {
                 ImGui::SliderFloat("Render Scale",&renderScale, 0.3f, 1.f);
+                {
+                    std::vector<const char *> items = { "Solid", "Color", "Normal" };
+                    static const char *selected = items[1];
 
-                ComputeEffect &selected = backgroundEffects[currBackgroundEffect];
-                ImGui::Text("Selected effect: ", selected.name);
+                    if (ImGui::BeginCombo("Render Mode", selected)) {
+                        for (int i = 0; i < items.size(); ++i) {
+                            bool isSelected = (selected == items[i]);
+                            if (ImGui::Selectable(items[i], isSelected)) {
+                                selected = items[i];
+                            }
 
-                ImGui::SliderInt("Effect Index", &currBackgroundEffect, 0, backgroundEffects.size() - 1);
+                            isSelected = (selected == items[i]);
 
-                ImGui::InputFloat4("data1", (float *)&selected.data.data1);
-                ImGui::InputFloat4("data2", (float *)&selected.data.data2);
-                ImGui::InputFloat4("data3", (float *)&selected.data.data3);
-                ImGui::InputFloat4("data4", (float *)&selected.data.data4);
+                            if (isSelected) {
+                                ImGui::SetItemDefaultFocus();
+                                viewMode = static_cast<ViewMode>(i);
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+                }
                 ImGui::End();
             }
 
             if (ImGui::Begin("Renderer")) {
-                std::vector<const char*> items = { "Vulkan Viewport (Lambertian)", "CUDA Pathtraced" };
+                std::vector<const char*> items = { "Rasterized (Vulkan)", "Pathtraced(CUDA)" };
                 static const char *selected = items[0];
 
                 if (ImGui::BeginCombo("Render Mode", selected)) {
@@ -471,6 +506,8 @@ void TsukiEngine::run() {
                         if (ImGui::Selectable(items[i], isSelected)) {
                             selected = items[i];
                         }
+
+                        isSelected = (selected == items[i]);
 
                         if (isSelected) {
                             ImGui::SetItemDefaultFocus();
@@ -506,35 +543,12 @@ void TsukiEngine::run() {
 
 //PUBLIC HELPERS
 //===================================================================================================================
-void TsukiEngine::drawBackground(VkCommandBuffer commandBuffer, uint32_t swapChainImageIndex) {
-    //Clear the image color
-#if CLEAR_VALUE
+void TsukiEngine::drawBackground(VkCommandBuffer commandBuffer, VkImage image) {
+    //Clear the im#if CLEAR_VALUE
     VkClearColorValue clearValue;
-    clearValue = { { .2f, .2f, .2f, 1.0f } };
+    clearValue = { { .1f, .1f, .1f, 1.0f } };
     VkImageSubresourceRange clearRange = tsukiinit::tImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
-    vkCmdClearColorImage(commandBuffer, _swapChainImages[swapChainImageIndex], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
-#endif
-
-    //Pick the pipeline to bind based on the selected effect in IMGUI
-#if COMPUTE_BACKGROUND
-    ComputeEffect &effect = backgroundEffects[currBackgroundEffect];
-
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, effect.pipeline);
-    //Bind the descriptor set with the draw image for the compute pass
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipelineLayout, 0, 1, &_drawImageDescriptors, 0, nullptr);
-
-    /*ComputePushConstants pushConstants;
-    pushConstants.data1 = glm::vec4(1, 0, 0, 1);
-    pushConstants.data2 = glm::vec4(0, 0, 1, 1);*/
-
-    vkCmdPushConstants(commandBuffer, _gradientPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &effect.data);
-
-    //Dispatch
-    vkCmdDispatch(commandBuffer, std::ceil(_drawExtent.width / 16.f), std::ceil(_drawExtent.height / 16.f), 1); //Like a kernel launch
-#endif
-
-#if CUDA_TEST
-#endif
+    vkCmdClearColorImage(commandBuffer, image, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
 }
 
 void TsukiEngine::immediateSubmit(std::function<void(VkCommandBuffer commandBuffer)> &&function) {
@@ -643,6 +657,16 @@ void TsukiEngine::updateScene() {
         sceneData.camPos = glm::vec3(glm::inverse(sceneData.view) * glm::vec4(0, 0, 0, 1));
 
         sceneData.ambient = .1f;
+    }
+
+    if (_renderMode == TsukiRenderMode::TSUKI_RENDER_MODE_PATHTRACED_CUDA && _tlasDirty) {
+        _tlasDirty = false;
+        std::vector<BVHNode> blas;
+        for (auto &bvh : _blas) {
+            blas.push_back(bvh[0]);
+        }
+
+        tsukibvh::buildTLAS(blas, _sceneInstances, _tlasTransformations);
     }
 
     auto end = std::chrono::system_clock::now();
@@ -769,15 +793,31 @@ void TsukiEngine::destroyBuffer(const AllocatedBuffer &buffer) {
 
 //MESH HELPERS
 //===================================================================================================================
-DeviceMeshBuffers TsukiEngine::uploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices, std::span<uint32_t> materialLookup, int startMaterialIndex) {
-    const size_t vertexBufferSize = vertices.size() * sizeof(Vertex);
+DeviceMeshBuffers TsukiEngine::uploadMesh(std::span<uint32_t> indices, std::span<glm::vec4> positions, std::span<glm::vec4> normals, std::span<glm::vec4> colors, std::span<glm::vec2> uvs, std::span<uint32_t> materialLookup, int startMaterialIndex) {
+    const size_t posBufferSize = positions.size() * sizeof(glm::vec4);
+    const size_t normalBufferSize = normals.size() * sizeof(glm::vec4);
+    const size_t colorBufferSize = colors.size() * sizeof(glm::vec4);
+    const size_t uvBufferSize = uvs.size() * sizeof(glm::vec2);
     const size_t indexBufferSize = indices.size() * sizeof(uint32_t);
     const size_t materialLookupSize = materialLookup.size() * sizeof(uint32_t);
 
     DeviceMeshBuffers mesh;
 
-    //Create external buffers for the mesh
-    mesh.vertexBuffer = createExternalBuffer(vertexBufferSize,
+    //Create external buffers for the mesh attributes
+    mesh.posBuffer = createExternalBuffer(posBufferSize,
+
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VMA_MEMORY_USAGE_GPU_ONLY);
+
+    mesh.normalBuffer = createExternalBuffer(normalBufferSize,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VMA_MEMORY_USAGE_GPU_ONLY);
+
+    mesh.colorBuffer = createExternalBuffer(colorBufferSize,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VMA_MEMORY_USAGE_GPU_ONLY);
+
+    mesh.uvBuffer = createExternalBuffer(uvBufferSize,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VMA_MEMORY_USAGE_GPU_ONLY);
 
@@ -790,34 +830,42 @@ DeviceMeshBuffers TsukiEngine::uploadMesh(std::span<uint32_t> indices, std::span
         VMA_MEMORY_USAGE_GPU_ONLY);
     //The TsukiGLTF destructor will destroy these buffers
 
-    //Giant staging buffer for us to place our data into
+    //Giant staging buffer for all data
     {
-        AllocatedBuffer stagingBuffer = createBuffer(vertexBufferSize + indexBufferSize + materialLookupSize,
+        size_t totalSize = posBufferSize + normalBufferSize + colorBufferSize + uvBufferSize + indexBufferSize + materialLookupSize;
+        AllocatedBuffer stagingBuffer = createBuffer(totalSize,
             VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
         void *data = stagingBuffer.allocation->GetMappedData();
-        memcpy(data, vertices.data(), vertexBufferSize);
-        memcpy((char *)data + vertexBufferSize, indices.data(), indexBufferSize);
-        memcpy((char *)data + vertexBufferSize + indexBufferSize, materialLookup.data(), materialLookupSize);
+
+        size_t offset = 0;
+        memcpy((char *)data + offset, positions.data(), posBufferSize); offset += posBufferSize;
+        memcpy((char *)data + offset, normals.data(), normalBufferSize); offset += normalBufferSize;
+        memcpy((char *)data + offset, colors.data(), colorBufferSize); offset += colorBufferSize;
+        memcpy((char *)data + offset, uvs.data(), uvBufferSize); offset += uvBufferSize;
+        memcpy((char *)data + offset, indices.data(), indexBufferSize); offset += indexBufferSize;
+        memcpy((char *)data + offset, materialLookup.data(), materialLookupSize);
 
         //Copy the data over to the device-local buffers
         immediateSubmit([&](VkCommandBuffer commandBuffer) {
-            VkBufferCopy vertexCopy{};
-            vertexCopy.dstOffset = 0;
-            vertexCopy.srcOffset = 0;
-            vertexCopy.size = vertexBufferSize;
-            vkCmdCopyBuffer(commandBuffer, stagingBuffer.buffer, mesh.vertexBuffer.buffer, 1, &vertexCopy);
+            offset = 0;
+            VkBufferCopy copy{};
+            copy.dstOffset = 0; copy.srcOffset = offset; copy.size = posBufferSize;
+            vkCmdCopyBuffer(commandBuffer, stagingBuffer.buffer, mesh.posBuffer.buffer, 1, &copy); offset += posBufferSize;
 
-            VkBufferCopy indexCopy{};
-            indexCopy.dstOffset = 0;
-            indexCopy.srcOffset = vertexBufferSize;
-            indexCopy.size = indexBufferSize;
-            vkCmdCopyBuffer(commandBuffer, stagingBuffer.buffer, mesh.indexBuffer.buffer, 1, &indexCopy);
+            copy.dstOffset = 0; copy.srcOffset = offset; copy.size = normalBufferSize;
+            vkCmdCopyBuffer(commandBuffer, stagingBuffer.buffer, mesh.normalBuffer.buffer, 1, &copy); offset += normalBufferSize;
 
-            VkBufferCopy materialCopy{};
-            materialCopy.dstOffset = 0;
-            materialCopy.srcOffset = vertexBufferSize + indexBufferSize;
-            materialCopy.size = materialLookupSize;
-            vkCmdCopyBuffer(commandBuffer, stagingBuffer.buffer, mesh.materialLookupBuffer.buffer, 1, &materialCopy);
+            copy.dstOffset = 0; copy.srcOffset = offset; copy.size = colorBufferSize;
+            vkCmdCopyBuffer(commandBuffer, stagingBuffer.buffer, mesh.colorBuffer.buffer, 1, &copy); offset += colorBufferSize;
+
+            copy.dstOffset = 0; copy.srcOffset = offset; copy.size = uvBufferSize;
+            vkCmdCopyBuffer(commandBuffer, stagingBuffer.buffer, mesh.uvBuffer.buffer, 1, &copy); offset += uvBufferSize;
+
+            copy.dstOffset = 0; copy.srcOffset = offset; copy.size = indexBufferSize;
+            vkCmdCopyBuffer(commandBuffer, stagingBuffer.buffer, mesh.indexBuffer.buffer, 1, &copy); offset += indexBufferSize;
+
+            copy.dstOffset = 0; copy.srcOffset = offset; copy.size = materialLookupSize;
+            vkCmdCopyBuffer(commandBuffer, stagingBuffer.buffer, mesh.materialLookupBuffer.buffer, 1, &copy);
             });
 
         destroyBuffer(stagingBuffer);
@@ -846,8 +894,11 @@ DeviceMeshBuffers TsukiEngine::uploadMesh(std::span<uint32_t> indices, std::span
     mesh.perMeshDescriptorSet = _meshDescriptorAllocator.allocate(_device, _perMeshDescriptorLayout);
 
     DescriptorWriter writer;
-    writer.writeBuffer(0, mesh.vertexBuffer.buffer, vertexBufferSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-    writer.writeBuffer(1, mesh.materialLookupBuffer.buffer, materialLookupSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    writer.writeBuffer(0, mesh.posBuffer.buffer, posBufferSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    writer.writeBuffer(1, mesh.normalBuffer.buffer, normalBufferSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    writer.writeBuffer(2, mesh.colorBuffer.buffer, colorBufferSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    writer.writeBuffer(3, mesh.uvBuffer.buffer, uvBufferSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    writer.writeBuffer(4, mesh.materialLookupBuffer.buffer, materialLookupSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     writer.updateSet(_device, mesh.perMeshDescriptorSet);
 
     //TODO: Update the descriptor sets for the images
@@ -1177,18 +1228,21 @@ void TsukiEngine::initDescriptors() {
         _bindlessTextureDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, &bindingFlagsInfo, VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT);
     }
 
-    //Set 2) Per-mesh buffers (vertex + material lookup)
+    //Set 2) Per-mesh buffers (pos, normal, color, uv, material lookup)
     {
         DescriptorLayoutBuilder builder;
-        builder.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // vertex buffer
-        builder.addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // material lookup buffer
+        builder.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // pos buffer
+        builder.addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // normal buffer
+        builder.addBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // color buffer
+        builder.addBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // uv buffer
+        builder.addBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER); // material lookup buffer
         _perMeshDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_VERTEX_BIT);
     }
 
     //Persistent allocator for per-mesh descriptor sets
     {
         std::vector<DynamicDescriptorAllocator::PoolSizeRatio> meshSizes = {
-            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2}
+            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 5}
         };
         _meshDescriptorAllocator.init(_device, 100, meshSizes);
     }
@@ -1240,69 +1294,36 @@ void TsukiEngine::initBackgroundPipelines() { //TODO: Just copy this over to ini
     computeLayout.setLayoutCount = 1;
     computeLayout.pSetLayouts = &_drawImageDescriptorLayout; //Plug in the descriptor set layout, promising certain kinds of resources
 
-    VkPushConstantRange pushConstant{};
-    pushConstant.offset = 0;
-    pushConstant.size = sizeof(ComputePushConstants);
-    pushConstant.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    VK_CHECK(vkCreatePipelineLayout(_device, &computeLayout, nullptr, &_pathtracerPipelineLayout));
 
-    computeLayout.pPushConstantRanges = &pushConstant;
-    computeLayout.pushConstantRangeCount = 1;
-
-    VK_CHECK(vkCreatePipelineLayout(_device, &computeLayout, nullptr, &_gradientPipelineLayout));
-
-    VkShaderModule computeGradientShader;
-    if (!tsukiutil::loadShaderModule("./Shaders/gradient.spv", _device, &computeGradientShader)) {
-        std::cerr << "Error building compute shader" << std::endl;
-    }
-
-    VkShaderModule computeColorBlendShader;
-    if (!tsukiutil::loadShaderModule("./Shaders/colorblend.spv", _device, &computeColorBlendShader)) {
-        std::cerr << "Error building compute shader" << std::endl;
+    VkShaderModule computeColorCorrectShader;
+    if (!tsukiutil::loadShaderModule("./Shaders/colorcorrect.spv", _device, &computeColorCorrectShader)) {
+        std::cerr << "Error building color correction compute shader" << std::endl;
     }
 
     VkPipelineShaderStageCreateInfo stageInfo{};
     stageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stageInfo.pNext = nullptr;
     stageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    stageInfo.module = computeGradientShader;
+    stageInfo.module = computeColorCorrectShader;
     stageInfo.pName = "main"; //Entry point (?)
 
     VkComputePipelineCreateInfo computePipelineCreateInfo{};
     computePipelineCreateInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     computePipelineCreateInfo.pNext = nullptr;
-    computePipelineCreateInfo.layout = _gradientPipelineLayout;
+    computePipelineCreateInfo.layout = _pathtracerPipelineLayout;
     computePipelineCreateInfo.stage = stageInfo;
 
-    ComputeEffect gradient;
-    gradient.layout = _gradientPipelineLayout;
-    gradient.name = "gradient";
-    gradient.data = {};
-
-    VK_CHECK(vkCreateComputePipelines(_device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &gradient.pipeline));
-
-    stageInfo.module = computeColorBlendShader;
+    stageInfo.module = computeColorCorrectShader;
     computePipelineCreateInfo.stage = stageInfo; //Was copied by value, so I have to reassign the modified version
 
-    ComputeEffect colorBlend;
-    colorBlend.layout = _gradientPipelineLayout;
-    colorBlend.name = "color blend";
-    colorBlend.data = {};
+    VK_CHECK(vkCreateComputePipelines(_device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &_pathtracerPipeline));
 
-    colorBlend.data.data1 = glm::vec4(1, 0, 0, 1);
-    colorBlend.data.data2 = glm::vec4(0, 0, 1, 1);
-
-    VK_CHECK(vkCreateComputePipelines(_device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &colorBlend.pipeline));
-
-    backgroundEffects.push_back(gradient);
-    backgroundEffects.push_back(colorBlend);
-
-    vkDestroyShaderModule(_device, computeGradientShader, nullptr);
-    vkDestroyShaderModule(_device, computeColorBlendShader, nullptr);
+    vkDestroyShaderModule(_device, computeColorCorrectShader, nullptr);
 
     _mainDeletionQueue.push([=]() {
-        vkDestroyPipelineLayout(_device, _gradientPipelineLayout, nullptr);
-        vkDestroyPipeline(_device, colorBlend.pipeline, nullptr);
-        vkDestroyPipeline(_device, gradient.pipeline, nullptr);
+        vkDestroyPipelineLayout(_device, _pathtracerPipelineLayout, nullptr);
+        vkDestroyPipeline(_device, _pathtracerPipeline, nullptr);
         });
 
     materialPipelines.buildPipelines(this);
@@ -1597,10 +1618,11 @@ void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer) {
 
         vkCmdBindIndexBuffer(commandBuffer, renderable.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
-        GPUDrawPushConstants pushConstants;
+        DrawPushConstants pushConstants;
         pushConstants.worldMatrix = renderable.transform;
         pushConstants.inverseTranspose = glm::mat4(glm::inverse(glm::transpose(glm::mat3(pushConstants.worldMatrix))));
-        vkCmdPushConstants(commandBuffer, layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &pushConstants);
+        pushConstants.viewMode = viewMode;
+        vkCmdPushConstants(commandBuffer, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DrawPushConstants), &pushConstants);
 
         vkCmdDrawIndexed(commandBuffer, renderable.indexCount, 1, renderable.indexOffset, 0, 0);
 
@@ -1626,6 +1648,23 @@ void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer) {
     _benchmarker.meshDrawTime = elapsed.count() / 1000.f;
 }
 
+void TsukiEngine::drawPathtraced(VkCommandBuffer commandBuffer) { //TODO
+    _benchmarker.numDrawCalls = 0;
+    _benchmarker.numTriangles = 0;
+    auto start = std::chrono::system_clock::now();
+
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, _pathtracerPipeline);
+    //Bind the descriptor set with the draw image for the compute pass
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, _pathtracerPipelineLayout, 0, 1, &_drawImageDescriptors, 0, nullptr);
+
+    //Dispatch
+    vkCmdDispatch(commandBuffer, std::ceil(_drawExtent.width / 32.f), std::ceil(_drawExtent.height / 32.f), 1); //Like a kernel launch
+
+    auto end = std::chrono::system_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    _benchmarker.meshDrawTime = elapsed.count() / 1000.f;
+}
+
 void TsukiEngine::initMeshPipeline() {
     VkShaderModule meshShader;
     if (!tsukiutil::loadShaderModule("./Shaders/meshshader.spv", _device, &meshShader)) {
@@ -1634,8 +1673,8 @@ void TsukiEngine::initMeshPipeline() {
 
     VkPushConstantRange bufferRange{};
     bufferRange.offset = 0;
-    bufferRange.size = sizeof(GPUDrawPushConstants);
-    bufferRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    bufferRange.size = sizeof(DrawPushConstants);
+    bufferRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayout layouts[] = {
         _sceneDataDescriptorLayout,

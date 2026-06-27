@@ -15,11 +15,12 @@ a) *Consider switching to SDL*
 a) *Setup Vulkan instance, physical device, surface, and logical device (O)*
 b) *Setup Vulkan swapchain (O)*
 b) *Setup synchronization devices, frames in flight (O)*
-b) *Walk through compute shader rendering (-)*
-4) Implement GLTF loading to Vulkan (we'll get a pointer to pass it to CUDA)
+b) *Walk through compute shader rendering (O)*
+4) Implement GLTF loading to Vulkan (we'll get a pointer to pass it to CUDA) (O)
 5) Implement multiple object rasterization in Vulkan
-6) Implement CUDA pathtracing
-7) Implement Vulkan interop
+6) Implement Vulkan interop (O)
+7) Implement CUDA pathtracing (-)
+a) *Setup BVH Build* (-)
 8) Setup CMake and port to GPU
 a) *reformat project structure*
 
@@ -59,10 +60,14 @@ Resources used:
 * **Vulkan Tutorial** - Used for initial VS project setup, and used for Vulkan object creation in place of `vkbootstrap`.
 * **NVIDIA Docs Cuda Programming Guide** - Used to learn about Vulkan-CUDA interop
 * **NVIDIA CUDA Samples Repo** - Used to learn about Vulkan-CUDA interop
+* **UPenn CIS 5610 (Advanced Rendering) curriculum**
+* **PBRT 3e** - Pathtracer code and concepts
 
 External libraries used:
 * `GLFW`
 * `GLM`
-* * `DearIMGui`
+* `DearImGUI`
 * `fastGLTF`
 * `VMA`
+* `stb`
+* `Thrust`

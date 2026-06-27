@@ -39,7 +39,7 @@ VkPipeline PipelineBuilder::build(VkDevice device) {
 	pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
 
 	pipelineInfo.pNext = &_renderInfo;
-	pipelineInfo.stageCount = (uint32_t)_shaderStages.size();
+	pipelineInfo.stageCount = static_cast<uint32_t>(_shaderStages.size());
 	pipelineInfo.pStages = _shaderStages.data();
 	pipelineInfo.pVertexInputState = &_vertexInputInfo;
 	pipelineInfo.pInputAssemblyState = &_inputAssembly;

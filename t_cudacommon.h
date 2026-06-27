@@ -40,8 +40,59 @@ struct u8vec4 {
 	uint8_t a;
 };
 
-struct TsukiCamera;
+class TsukiCamera;
 struct TsukiCudaMesh;
+
+struct TsukiCudaMaterialData {
+	int colorTextureIndex{ -1 };
+	int metallicRoughnessTextureIndex{ -1 };
+	int emissiveTextureIndex{ -1 };
+	int normalTextureIndex{ -1 };
+
+	glm::vec4 colorFac;
+	glm::vec4 metallicRoughnessFac;
+	glm::vec4 emissionFac;
+
+	uint8_t passPadding[16];
+
+	glm::vec4 padding[11]; //Padding to meet the 256 bytes
+};
+
+struct TsukiCudaMesh {
+	int numIndices{ 0 };
+	cudaExternalMemory_t indexBufferMemory;
+	uint32_t *d_indexBuffer;
+
+	int numVertices{ 0 };
+	cudaExternalMemory_t posMemory;
+	glm::vec4 *d_pos;
+
+	cudaExternalMemory_t normalMemory;
+	glm::vec4 *d_normal;
+
+	cudaExternalMemory_t colorMemory;
+	glm::vec4 *d_color;
+
+	cudaExternalMemory_t uvMemory;
+	glm::vec2 *d_uv;
+
+	int materialLookupBufferSize{ 0 };
+	cudaExternalMemory_t MaterialLookupBufferMemory;
+	int *d_materialLookupBuffer;
+};
+
+//Forward declarations
+struct BVHNode;
+struct TLASNode;
+
+struct TsukiCudaAccelerationStructures {
+	int tlasSize{ 0 };
+	TLASNode *d_tlas;
+
+	int numBVH{ 0 };
+	int *d_bvhSizes;
+	BVHNode **d_bvh;
+};
 
 struct TsukiCudaData { //TODO: This bottlenecks performance. I might wanna improve this later...
 	cudaExternalSemaphore_t _cudaSampleFinishedSemaphore;
@@ -53,15 +104,6 @@ struct TsukiCudaData { //TODO: This bottlenecks performance. I might wanna impro
 	void *imageBuffer;
 	int imageBufferSize{ 0 };
 
-	cudaExternalMemory_t indexBufferMemory;
-	void *indexBuffer;
-	int indexBufferSize{ 0 };
-
-	cudaExternalMemory_t vertexBufferMemory;
-	void *vertexBuffer;
-	int vertexBufferSize{ 0 };
-
-	TsukiCudaMesh *meshes;
 	bool asBuilt{ false };
 	bool asDirty{ false };
 
@@ -70,22 +112,10 @@ struct TsukiCudaData { //TODO: This bottlenecks performance. I might wanna impro
 	unsigned numSamples;
 
 	TsukiCamera *camera;
-};
 
-struct TsukiCudaMaterialData {
-	
-};
+	void *d_MaterialBuffer;
 
-struct TsukiCudaMesh {
-	int indexBufferSize{ 0 };
-	cudaExternalMemory_t indexBufferMemory;
-	uint32_t *d_indexBuffer;
-
-	int vertexBufferSize{ 0 };
-	cudaExternalMemory_t vertexBufferMemory;
-	Vertex *d_vertexBuffer;
-
-	int materialLookupBufferSize{ 0 };
-	cudaExternalMemory_t MaterialLookupBufferMemory;
-	int *d_materialLookupBuffer;
+	int numMeshes;
+	TsukiCudaMesh *d_meshes;
+	TsukiCudaAccelerationStructures *d_accelerationStructures;
 };

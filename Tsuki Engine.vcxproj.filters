@@ -72,6 +72,9 @@
     <ClCompile Include="..\..\..\OneDrive\Documents\Visual Studio 2022\Libraries\imgui-docking\backends\imgui_impl_glfw.cpp">
       <Filter>ImGUI</Filter>
     </ClCompile>
+    <ClCompile Include="t_bvh.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="t_engine.h">
@@ -110,6 +113,9 @@
     <ClInclude Include="t_geometry.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="t_bvh.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="README.md" />
@@ -133,6 +139,9 @@
     </None>
     <None Include="t_cudacommon.h">
       <Filter>Header Files</Filter>
+    </None>
+    <None Include="Shaders\colorcorrect.slang">
+      <Filter>Shaders</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>

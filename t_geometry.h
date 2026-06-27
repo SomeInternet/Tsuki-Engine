@@ -3,6 +3,7 @@
 #include <glm/mat4x4.hpp>
 #include <glm/vec4.hpp>
 
+//TODO: Remove, no longer needed
 struct Vertex {
 	//Structured for efficient memory alignment
 	//Apparently, GPU's like aligning data structures to 4 byte slots

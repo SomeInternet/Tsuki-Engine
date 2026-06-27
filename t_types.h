@@ -22,7 +22,7 @@
 #include <fmt/core.h>
 #include <fmt/format.h>
 
-#include "t_geometry.h"
+#include "t_cudacommon.h"
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
@@ -91,7 +91,10 @@ constexpr uint32_t MAX_BINDLESS_TEXTURES = 4096;
 
 struct DeviceMeshBuffers {
 	AllocatedBuffer indexBuffer;
-	AllocatedBuffer vertexBuffer;
+	AllocatedBuffer posBuffer;
+	AllocatedBuffer normalBuffer;
+	AllocatedBuffer colorBuffer;
+	AllocatedBuffer uvBuffer;
 	AllocatedBuffer materialLookupBuffer;
 
 	VkDescriptorSet perMeshDescriptorSet;
@@ -104,9 +107,14 @@ struct TsukiSubMeshSpan {
 	uint32_t vertexEnd;
 };
 
-struct GPUDrawPushConstants {
+enum ViewMode {
+	VIEW_SOLID, VIEW_COLOR, VIEW_NORMAL
+};
+
+struct DrawPushConstants {
 	glm::mat4 worldMatrix;
 	glm::mat4 inverseTranspose;
+	ViewMode viewMode;
 };
 
 //

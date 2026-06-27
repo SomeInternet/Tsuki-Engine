@@ -5,6 +5,7 @@
 #include "t_input.h"
 #include "t_camera.h"
 #include "t_cudacommon.h"
+#include "t_bvh.h"
 
 #include <unordered_map>
 
@@ -33,22 +34,6 @@ public:
 
 //ACTUAL GPU STUFF
 //===================================================================================================================
-struct ComputePushConstants { //TODO: Check device specs to see limits of how much can be pushed
-	glm::vec4 data1;
-	glm::vec4 data2;
-	glm::vec4 data3;
-	glm::vec4 data4;
-};
-
-struct ComputeEffect {
-	const char *name;
-
-	VkPipeline pipeline;
-	VkPipelineLayout layout;
-
-	ComputePushConstants data;
-};
-
 struct FrameData {
 	VkCommandPool _commandPool;
 	VkCommandBuffer _mainCommandBuffer;
@@ -107,6 +92,9 @@ struct TsukiMaterialPassPipelines {
 //===================================================================================================================
 struct TMeshNode : public TNode {
 	std::shared_ptr<TsukiMesh> mesh;
+
+	bool loadedToTlas{ false };
+	uint32_t blasId{ 0 };
 
 	virtual void queueDraw(const glm::mat4 &matrix, TsukiDrawContext &context) override;
 };
@@ -178,11 +166,8 @@ public:
 	VkDescriptorSet _drawImageDescriptors;
 	VkDescriptorSetLayout _drawImageDescriptorLayout;
 
-	VkPipeline _gradientPipeline;
-	VkPipelineLayout _gradientPipelineLayout;
-
-	std::vector<ComputeEffect> backgroundEffects;
-	int currBackgroundEffect{ 0 };
+	VkPipeline _pathtracerPipeline;
+	VkPipelineLayout _pathtracerPipelineLayout;
 
 	//Chapter 3
 	VkPipelineLayout _meshPipelineLayout;
@@ -215,6 +200,8 @@ public:
 	//
 
 	//Chapter 5
+	ViewMode viewMode{ ViewMode::VIEW_COLOR };
+
 	std::unordered_map<std::string, std::shared_ptr<TsukiGLTF>> loadedScenes;
 
 	Benchmarker _benchmarker;
@@ -229,6 +216,15 @@ public:
 	VkDescriptorSet _bindlessDescriptorSet;
 	VkDescriptorSetLayout _bindlessTextureDescriptorLayout; //Set 1) material data + textures + sampler
 	DynamicDescriptorAllocator _bindlessDescriptorAllocator;
+
+	//ACCELERATION STRUCTURES
+	std::vector<std::vector<BVHNode>> _blas;
+	std::vector<BLASInstance> _sceneInstances;
+	std::vector<TLASNode> _tlas;
+	std::vector<glm::mat4> _tlasTransformations;
+	std::vector<glm::mat3> _tlasTransformationsInverseTranspose;
+	std::vector<glm::mat4> _tlasTransformationsInverse;
+	bool _tlasDirty{ false };
 
 	//CUDA INTEROP
 	VmaPool _vmaExternalPool; //Pool for allocating memory that will be exported
@@ -261,7 +257,7 @@ public:
 
 	//PUBLIC HELPERS
 	//===================================================================================================================
-	void drawBackground(VkCommandBuffer commandBuffer, uint32_t swapChainImageIndex);
+	void drawBackground(VkCommandBuffer commandBuffer, VkImage image);
 
 	void immediateSubmit(std::function<void(VkCommandBuffer commandBuffer)> &&function);
 
@@ -280,7 +276,7 @@ public:
 
 	//MESH HELPERS
 	//===================================================================================================================
-	DeviceMeshBuffers uploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices, std::span<uint32_t> materialLookup, int startMaterialIndex);
+	DeviceMeshBuffers uploadMesh(std::span<uint32_t> indices, std::span<glm::vec4> positions, std::span<glm::vec4> normals, std::span<glm::vec4> colors, std::span<glm::vec2> uvs, std::span<uint32_t> materialLookup, int startMaterialIndex);
 
 private:
 
@@ -308,6 +304,7 @@ private:
 
 	//Chapter 3
 	void drawGeometry(VkCommandBuffer commandBuffer);
+	void drawPathtraced(VkCommandBuffer commandBuffer);
 
 	void initMeshPipeline();
 	void initDefaultMeshData();

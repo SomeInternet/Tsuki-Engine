@@ -23,17 +23,14 @@ struct TsukiMaterialData {
     float4 padding[11];
 };
 
-struct Vertex {
-    float3 pos;
-    float uvX;
-    float3 normal;
-    float uvY;
-    float4 color;
+enum ViewMode {
+    VIEW_SOLID, VIEW_COLOR, VIEW_NORMAL
 };
 
 struct PushConstants {
     float4x4 worldMatrix;
     float4x4 inverseTranspose;
+    ViewMode viewMode;
 };
 
 struct VSOutput {
@@ -58,9 +55,18 @@ Texture2D<float4> textures[4096];
 SamplerState defaultSampler;
 
 [vk::binding(0, 2)]
-StructuredBuffer<Vertex> vertexBuffer;
+StructuredBuffer<float4> posBuffer;
 
 [vk::binding(1, 2)]
+StructuredBuffer<float4> normalBuffer;
+
+[vk::binding(2, 2)]
+StructuredBuffer<float4> colorBuffer;
+
+[vk::binding(3, 2)]
+StructuredBuffer<float2> uvBuffer;
+
+[vk::binding(4, 2)]
 StructuredBuffer<int> materialLookupBuffer;
 
 [vk::push_constant]
@@ -68,20 +74,20 @@ PushConstants vsInput;
 
 [shader("vertex")]
 VSOutput vertMain(uint index : SV_VertexID) {
-    Vertex v = vertexBuffer[index];
-
-    float4 pos = float4(v.pos, 1);
+    float4 pos = posBuffer[index];
+    float4 normal = normalBuffer[index];
+    float4 color = colorBuffer[index];
+    float2 uv = uvBuffer[index];
 
     VSOutput vsOutput;
     vsOutput.pos = mul(sceneData.viewproj, mul(vsInput.worldMatrix, pos));
     vsOutput.worldPos = mul(vsInput.worldMatrix, pos).xyz;
-    vsOutput.normal = mul(vsInput.inverseTranspose, float4(v.normal, 1)).xyz;
+    vsOutput.normal = mul(vsInput.inverseTranspose, normal).xyz;
 
     uint materialIndex = materialLookupBuffer[index];
     TsukiMaterialData mat = materialDataArray[materialIndex];
-    vsOutput.color = v.color.rgb;
-    vsOutput.uv.x = v.uvX;
-    vsOutput.uv.y = v.uvY;
+    vsOutput.color = color.rgb;
+    vsOutput.uv = uv;
     vsOutput.materialIndex = materialIndex;
 
     return vsOutput;
@@ -108,7 +114,14 @@ float4 fragMain(VSOutput fsInput) : SV_Target {
     if (mat.emissiveTextureIndex >= 0) {
         emissionColor = textures[NonUniformResourceIndex(mat.emissiveTextureIndex)].Sample(defaultSampler, fsInput.uv).rgb;
     }
-    float3 color = fsInput.color * mat.colorFac.rgb;
+    float3 color = float3(0);
+    if (vsInput.viewMode == ViewMode::VIEW_SOLID) {
+        color = float3(lambertian);
+    } else if (vsInput.viewMode == ViewMode::VIEW_COLOR) {
+        color = max(fsInput.color * mat.colorFac.rgb * lambertian, emissionColor);
+    } else if (vsInput.viewMode == ViewMode::VIEW_NORMAL) {
+        color = abs(fsInput.normal);
+    }
 
-    return max(float4(lambertian * color, 1), float4(emissionColor, 1));
+    return float4(color, 1);
 }
