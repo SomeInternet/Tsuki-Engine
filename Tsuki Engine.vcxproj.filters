@@ -110,10 +110,13 @@
     <ClInclude Include="t_interop.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="t_geometry.h">
+    <ClInclude Include="t_bvh.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="t_bvh.h">
+    <ClInclude Include="t_intersect.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="t_geometry.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -148,5 +151,6 @@
     <CudaCompile Include="t_pathtrace.cu">
       <Filter>Source Files</Filter>
     </CudaCompile>
+    <CudaCompile Include="t_intersect.cu" />
   </ItemGroup>
 </Project>

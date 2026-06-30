@@ -23,3 +23,15 @@ const glm::mat4 &TsukiCamera::getRot() {
 	rotMatrix = glm::rotate(glm::mat4(1), -theta, glm::vec3(1, 0, 0)) * glm::rotate(glm::mat4(1), -phi, glm::vec3(0, 1, 0));
 	return rotMatrix;
 }
+
+TsukiCudaCamera TsukiCamera::toCudaCamera() {
+	glm::mat3 rot = glm::transpose(glm::mat3(getRot()));
+
+	TsukiCudaCamera cudaCamera{};
+	cudaCamera.forward = -rot[2];
+	cudaCamera.right = rot[0];
+	cudaCamera.up = rot[1];
+	cudaCamera.origin = origin - radius * cudaCamera.forward;
+	cudaCamera.fov = fov;
+	return cudaCamera;
+}

@@ -61,6 +61,7 @@ uint32_t tsukibvh::recursiveBuildBVH(std::vector<BuildBVHNode> &result, std::vec
 	if (end - start <= 1) { //Leaf node case
 		BuildBVHNode newNode{};
 		newNode.primitiveId = triangles[start].primitiveId;
+		newNode.bounds = triangles[start].bounds; //Without this the leaf gets a degenerate box and is never hit
 		int id = result.size();
 		result.push_back(newNode);
 		return id;
@@ -108,7 +109,11 @@ uint32_t tsukibvh::recursiveBuildBVH(std::vector<BuildBVHNode> &result, std::vec
 		float minCost = std::numeric_limits<float>::max();
 		int splitBucket = 0;
 		for (int i = 0; i < numBuckets - 1; ++i) {
-			Bounds b0, b1;
+			Bounds b0{};
+			b0.max = glm::vec3(-std::numeric_limits<float>::max());
+			b0.min = glm::vec3(std::numeric_limits<float>::max());
+			Bounds b1 = b0;
+
 			int count0{ 0 };
 			int count1{ 0 };
 
@@ -204,6 +209,7 @@ std::vector<BLASInfo> tsukibvh::parseAABBs(std::vector <BVHNode> &blas, std::vec
 		BLASInfo blas{};
 		blas.bounds = bounds;
 		blas.blasInstanceId = i;
+		blas.blasId = instances[i].blasNodeId; //Mesh/BVH index the kernel uses to look up d_bvh/d_bvhSizes/meshes
 		result.push_back(blas);
 	}
 	return result;
@@ -235,7 +241,7 @@ std::vector<TLASNode> tsukibvh::buildTLAS(std::vector<BVHNode> &blas, std::vecto
 uint32_t tsukibvh::recursiveBuildTLAS(std::vector<BuildTLASNode> &result, std::vector<BLASInfo> &aabbs, uint32_t parent, int start, int end) {
 	if (end - start == 1) {
 		BuildTLASNode newNode{};
-		newNode.blasNodeId = aabbs[start].blasInstanceId;
+		newNode.blasNodeId = aabbs[start].blasId;
 		newNode.bounds = aabbs[start].bounds;
 		int id = result.size();
 		result.push_back(newNode);

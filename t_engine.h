@@ -233,6 +233,8 @@ public:
 	VkSemaphore cudaWriteToBufferSemaphore;
 	VkSemaphore cudaRenderDoneSemaphore;
 	TsukiCudaData cudaData;
+	TsukiCudaAccelerationStructures hostAS{};
+	std::vector<BVHNode *> blasPtrs; //Host-side copy of the per-mesh BVH device pointers (hostAS.d_bvh lives on the device)
 
 	TsukiRenderMode _renderMode{ TsukiRenderMode::TSUKI_RENDER_MODE_VIEWPORT_FORWARD };
 
@@ -296,14 +298,18 @@ private:
 	void initPipelines();
 	void initBackgroundPipelines();
 
+	//PRIVATE HELPERS
+	//===================================================================================================================
 	void initCudaData();
+	void uploadCudaSceneData();
+	void freeCudaSceneData();
 
 	void initImgui();
 	void initImguiTheme();
 	void drawImgui(VkCommandBuffer commandBuffer, VkImageView targetImageView);
 
 	//Chapter 3
-	void drawGeometry(VkCommandBuffer commandBuffer);
+	void drawGeometry(VkCommandBuffer commandBuffer, VkImageView imageView);
 	void drawPathtraced(VkCommandBuffer commandBuffer);
 
 	void initMeshPipeline();

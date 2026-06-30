@@ -202,6 +202,7 @@ std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf(TsukiEngine *engi
 	for (fastgltf::Mesh &mesh : gltf.meshes) {
 		std::shared_ptr<TsukiMesh> newMesh = std::make_shared<TsukiMesh>();
 		meshes.push_back(newMesh);
+		engine->meshes.push_back(newMesh);
 		file.meshes[mesh.name.c_str()] = newMesh;
 		newMesh->name = mesh.name;
 

@@ -100,13 +100,6 @@ struct DeviceMeshBuffers {
 	VkDescriptorSet perMeshDescriptorSet;
 };
 
-struct TsukiSubMeshSpan {
-	uint32_t indexStart;
-	uint32_t indexEnd;
-	uint32_t vertexStart;
-	uint32_t vertexEnd;
-};
-
 enum ViewMode {
 	VIEW_SOLID, VIEW_COLOR, VIEW_NORMAL
 };
@@ -213,3 +206,6 @@ struct TNode : public TRenderable {
 //glTF's (glb's, at least) store the base material colors in the material constants, in this implementation
 
 //Storage buffers can be bigger than uniform buffers
+
+//FOR GPU-side debugging: Put this into debugger:
+//C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2\compute-sanitizer\compute-sanitizer.exe

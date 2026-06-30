@@ -121,6 +121,10 @@
       <AdditionalLibraryDirectories>C:\VulkanSDK\1.4.335.0\Lib;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\glfw-3.4.bin.WIN64\lib-vc2022;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\fastgltf\build\Debug;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>vulkan-1.lib;glfw3.lib;fastgltf.lib;fastgltf_simdjson.lib;cudart.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <CudaCompile>
+      <CodeGeneration>compute_89,sm_89;compute_89,compute_89</CodeGeneration>
+      <AdditionalOptions>-fdevice-sanitize=memcheck --expt-relaxed-constexpr %(AdditionalOptions)</AdditionalOptions>
+    </CudaCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -140,6 +144,10 @@
       <AdditionalLibraryDirectories>C:\VulkanSDK\1.4.335.0\Lib;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\glfw-3.4.bin.WIN64\lib-vc2022;C:\Users\thoma\OneDrive\Documents\Visual Studio 2022\Libraries\fastgltf\build\Release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>vulkan-1.lib;glfw3.lib;fastgltf.lib;fastgltf_simdjson.lib;cudart.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <CudaCompile>
+      <CodeGeneration>compute_89,sm_89;compute_89,compute_89</CodeGeneration>
+      <AdditionalOptions>-fdevice-sanitize=memcheck --expt-relaxed-constexpr %(AdditionalOptions)</AdditionalOptions>
+    </CudaCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="t_bvh.h" />
@@ -151,6 +159,7 @@
     <ClInclude Include="t_initializers.h" />
     <ClInclude Include="t_input.h" />
     <ClInclude Include="t_interop.h" />
+    <ClInclude Include="t_intersect.h" />
     <ClInclude Include="t_loader.h" />
     <ClInclude Include="t_pathtrace.h" />
     <ClInclude Include="t_pipelines.h" />
@@ -188,6 +197,7 @@
     <None Include="Shaders\triangle.slang" />
   </ItemGroup>
   <ItemGroup>
+    <CudaCompile Include="t_intersect.cu" />
     <CudaCompile Include="t_pathtrace.cu" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

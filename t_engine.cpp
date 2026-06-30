@@ -280,12 +280,16 @@ void TsukiEngine::init() {
     assert(cornellBoxFile.has_value());
     loadedScenes["Cornell Box"] = *cornellBoxFile;
 
+    uploadCudaSceneData();
+
 	_isInit = true;
 }
 
 void TsukiEngine::cleanup() {
 	if (_isInit) {
         vkDeviceWaitIdle(_device);
+
+        freeCudaSceneData();
 
         loadedScenes.clear();
 
@@ -360,7 +364,7 @@ void TsukiEngine::draw() {
         tsukiutil::copyBufferToImage(commandBuffer, _drawImage.image, cudaImageBuffer.buffer, { _drawImage.imageExtent.width, _drawImage.imageExtent.height }, 0);
 
         //Draw the CUDA compute background
-        tsukicudapathtrace::testImage(&cudaData, _drawImage.imageExtent.width, _drawImage.imageExtent.height);
+        tsukicudapathtrace::testRaytrace(&cudaData, _drawImage.imageExtent.width, _drawImage.imageExtent.height);
     }
     {
         VkImageLayout prevLayout = (_renderMode == TsukiRenderMode::TSUKI_RENDER_MODE_PATHTRACED_CUDA) ? VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED;
@@ -374,7 +378,7 @@ void TsukiEngine::draw() {
     if (_renderMode == TsukiRenderMode::TSUKI_RENDER_MODE_VIEWPORT_FORWARD) {
         drawBackground(commandBuffer, _drawImage.image); //Clear color doesn't allow for color attachment optimal format
         tsukiutil::transitionImageLayout(commandBuffer, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-        drawGeometry(commandBuffer);
+        drawGeometry(commandBuffer, _swapChainImageViews[swapChainImageIndex]);
     }
     else if (_renderMode == TsukiRenderMode::TSUKI_RENDER_MODE_PATHTRACED_CUDA) {
         drawPathtraced(commandBuffer);
@@ -648,7 +652,7 @@ void TsukiEngine::updateScene() {
     //Update the scene data struct, to be passed as a uniform buffer later
     {
         sceneData.view = camera.getView();
-        sceneData.proj = glm::perspective(glm::radians(70.f), static_cast<float>(_windowExtent.width) / static_cast<float>(_windowExtent.height),
+        sceneData.proj = glm::perspective(glm::radians(camera.fov), static_cast<float>(_windowExtent.width) / static_cast<float>(_windowExtent.height),
             .1f, 10000.f);
 
         //Invert y for Vulkan
@@ -657,6 +661,12 @@ void TsukiEngine::updateScene() {
         sceneData.camPos = glm::vec3(glm::inverse(sceneData.view) * glm::vec4(0, 0, 0, 1));
 
         sceneData.ambient = .1f;
+
+        //Update CUDA's copy of the camera (only once the device buffer has been allocated)
+        if (cudaData.d_camera) {
+            TsukiCudaCamera cudaCamera = camera.toCudaCamera();
+            CUDA_CHECK(cudaMemcpy(cudaData.d_camera, &cudaCamera, sizeof(TsukiCudaCamera), cudaMemcpyHostToDevice));
+        }
     }
 
     if (_renderMode == TsukiRenderMode::TSUKI_RENDER_MODE_PATHTRACED_CUDA && _tlasDirty) {
@@ -666,7 +676,23 @@ void TsukiEngine::updateScene() {
             blas.push_back(bvh[0]);
         }
 
-        tsukibvh::buildTLAS(blas, _sceneInstances, _tlasTransformations);
+        _tlas = tsukibvh::buildTLAS(blas, _sceneInstances, _tlasTransformations);
+
+        //Re-upload TLAS to CUDA
+        if (hostAS.d_tlas) {
+            CUDA_CHECK(cudaFree(hostAS.d_tlas));
+            hostAS.d_tlas = nullptr;
+        }
+        hostAS.tlasSize = static_cast<int>(_tlas.size());
+        if (!_tlas.empty()) {
+            CUDA_CHECK(cudaMalloc(&hostAS.d_tlas, _tlas.size() * sizeof(TLASNode)));
+            CUDA_CHECK(cudaMemcpy(hostAS.d_tlas, _tlas.data(), _tlas.size() * sizeof(TLASNode), cudaMemcpyHostToDevice));
+        }
+
+        if (!cudaData.d_accelerationStructures) {
+            CUDA_CHECK(cudaMalloc(&cudaData.d_accelerationStructures, sizeof(TsukiCudaAccelerationStructures)));
+        }
+        CUDA_CHECK(cudaMemcpy(cudaData.d_accelerationStructures, &hostAS, sizeof(TsukiCudaAccelerationStructures), cudaMemcpyHostToDevice));
     }
 
     auto end = std::chrono::system_clock::now();
@@ -694,6 +720,7 @@ AllocatedBuffer TsukiEngine::createBuffer(size_t allocSize, VkBufferUsageFlags u
 }
 
 AllocatedBuffer TsukiEngine::createExternalBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage) {
+    //Gotta mind the offsets because VMA suballocates many buffers within a single VkDeviceMemory at different offsets
     VkExternalMemoryBufferCreateInfo externalBufferInfo{};
     externalBufferInfo.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
     externalBufferInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
@@ -1071,6 +1098,29 @@ void TsukiEngine::initSyncStructures() {
     VK_CHECK(vkCreateFence(_device, &fenceCreateInfo, nullptr, &_immFence));
 
     _mainDeletionQueue.push([=]() {vkDestroyFence(_device, _immFence, nullptr); });
+
+    //Pre-signal cudaWriteToBufferSemaphore via queue submission so CUDA's
+    //first wait doesn't deadlock (binary semaphores can only be signaled
+    //by the queue, not via vkSignalSemaphore).
+    {
+        VkCommandBuffer signalCmd;
+        VkCommandBufferAllocateInfo allocInfo = tsukiinit::tCommandBufferAllocateInfo(_immCommandPool);
+        VK_CHECK(vkAllocateCommandBuffers(_device, &allocInfo, &signalCmd));
+
+        VkCommandBufferBeginInfo beginInfo = tsukiinit::tCommandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+        VK_CHECK(vkBeginCommandBuffer(signalCmd, &beginInfo));
+        VK_CHECK(vkEndCommandBuffer(signalCmd));
+
+        VkCommandBufferSubmitInfo cmdBufInfo = tsukiinit::tCommandBufferSubmitInfo(signalCmd);
+        VkSemaphoreSubmitInfo signalSemaphoreInfo = tsukiinit::tSemaphoreSubmitInfo(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, cudaWriteToBufferSemaphore);
+        VkSubmitInfo2 submit = tsukiinit::tSubmitInfo(&cmdBufInfo, &signalSemaphoreInfo, nullptr, 1, 0);
+
+        VK_CHECK(vkResetFences(_device, 1, &_immFence));
+        VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submit, _immFence));
+        VK_CHECK(vkWaitForFences(_device, 1, &_immFence, true, 9999999999));
+
+        vkFreeCommandBuffers(_device, _immCommandPool, 1, &signalCmd);
+    }
 }
 
 void TsukiEngine::createSwapChain(uint32_t width, uint32_t height) {
@@ -1367,8 +1417,8 @@ void TsukiEngine::initCudaData() {
     cudaData.imageBufferSize = imageBufferSize;
 
     //Register the cuda image buffer's memory with CUDA
-    VmaAllocationInfo cudaImageBufferAllocInfo{};
-    vmaGetAllocationInfo(_allocator, cudaImageBuffer.allocation, &cudaImageBufferAllocInfo);
+    VmaAllocationInfo2 cudaImageBufferAllocInfo{};
+    vmaGetAllocationInfo2(_allocator, cudaImageBuffer.allocation, &cudaImageBufferAllocInfo);
 
 
     VkBufferDeviceAddressInfo deviceAddressInfo{};
@@ -1377,11 +1427,222 @@ void TsukiEngine::initCudaData() {
 
     //TODO: Remove excess code
     //cudaData.imageBufferAddress = vkGetBufferDeviceAddress(_device, &deviceAddressInfo);
-    tsukiutil::getCudaExternalMemory(this, &(cudaData.imageBuffer), &(cudaData.imageBufferMemory), &(cudaImageBufferAllocInfo.deviceMemory), imageBufferSize);
+    tsukiutil::getCudaExternalMemory(this, &(cudaData.imageBuffer), &(cudaData.imageBufferMemory),
+        &(cudaImageBufferAllocInfo.allocationInfo.deviceMemory), cudaImageBufferAllocInfo.blockSize,
+        cudaImageBufferAllocInfo.allocationInfo.offset, imageBufferSize);
 
     //The CUDA vertex buffer and index buffer will be populated when a glTF is loaded
     
 }
+
+void TsukiEngine::uploadCudaSceneData() {
+    if (meshes.empty()) return;
+
+    //TODO: Implement reloading on uploading more meshes
+
+    const int numMeshes = static_cast<int>(meshes.size());
+
+    std::vector<TsukiCudaMesh> hostMeshes(numMeshes);
+
+    //We also need to keep the cudaExternalMemory_t handles alive for the lifetime of the scene
+
+    for (int i = 0; i < numMeshes; ++i) {
+        auto &mesh = *meshes[i];
+        auto &buffers = mesh.meshBuffers;
+        TsukiCudaMesh &cm = hostMeshes[i];
+
+        //Lambda to convert Vulkan VMA buffers to CUDA external memory
+        auto importBuffer = [&](AllocatedBuffer &vkBuffer, size_t byteSize,
+            cudaExternalMemory_t &outExtMemory,
+            void **outDPtr)
+            {
+                VmaAllocationInfo2 allocInfo{};
+                vmaGetAllocationInfo2(_allocator, vkBuffer.allocation, &allocInfo);
+
+                tsukiutil::getCudaExternalMemory(this, outDPtr, &outExtMemory, &allocInfo.allocationInfo.deviceMemory,
+                    allocInfo.blockSize, allocInfo.allocationInfo.offset, byteSize);
+            };
+
+        //Indices
+        const size_t indexBytes = mesh.indexCount * sizeof(uint32_t);
+        cm.numIndices = static_cast<int>(mesh.indexCount);
+        importBuffer(buffers.indexBuffer, indexBytes,
+            cm.indexBufferMemory,
+            reinterpret_cast<void **>(&cm.d_indexBuffer));
+
+        //Positions
+        //Vertex count is derived from the buffer size stored in the
+        //VMA allocation info
+        {
+            VmaAllocationInfo posAI{};
+            vmaGetAllocationInfo(_allocator, buffers.posBuffer.allocation, &posAI);
+            const size_t posBytes = posAI.size;
+            cm.numVertices = static_cast<int>(posBytes / sizeof(glm::vec4));
+            importBuffer(buffers.posBuffer, posBytes,
+                cm.posMemory,
+                reinterpret_cast<void **>(&cm.d_pos));
+        }
+
+        //Normals
+        {
+            VmaAllocationInfo ai{};
+            vmaGetAllocationInfo(_allocator, buffers.normalBuffer.allocation, &ai);
+            importBuffer(buffers.normalBuffer, ai.size,
+                cm.normalMemory,
+                reinterpret_cast<void **>(&cm.d_normal));
+        }
+
+        //Vertex colors
+        {
+            VmaAllocationInfo ai{};
+            vmaGetAllocationInfo(_allocator, buffers.colorBuffer.allocation, &ai);
+            importBuffer(buffers.colorBuffer, ai.size,
+                cm.colorMemory,
+                reinterpret_cast<void **>(&cm.d_color));
+        }
+
+        //Uvs
+        {
+            VmaAllocationInfo ai{};
+            vmaGetAllocationInfo(_allocator, buffers.uvBuffer.allocation, &ai);
+            importBuffer(buffers.uvBuffer, ai.size,
+                cm.uvMemory,
+                reinterpret_cast<void **>(&cm.d_uv));
+        }
+
+        //UPLOAD MATERIAL LOOKUP BUFFER
+        {
+            VmaAllocationInfo ai{};
+            vmaGetAllocationInfo(_allocator, buffers.materialLookupBuffer.allocation, &ai);
+            cm.materialLookupBufferSize = static_cast<int>(ai.size / sizeof(int));
+            importBuffer(buffers.materialLookupBuffer, ai.size,
+                cm.MaterialLookupBufferMemory,
+                reinterpret_cast<void **>(&cm.d_materialLookupBuffer));
+        }
+    }
+
+    //UPLOAD TSUKICUDAMESHES TO DEVICE
+    {
+        const size_t meshArrayBytes = numMeshes * sizeof(TsukiCudaMesh);
+
+        // Free any previous allocation.
+        if (cudaData.d_meshes) {
+            CUDA_CHECK(cudaFree(cudaData.d_meshes));
+            cudaData.d_meshes = nullptr;
+        }
+
+        CUDA_CHECK(cudaMalloc(&cudaData.d_meshes, meshArrayBytes));
+        CUDA_CHECK(cudaMemcpy(cudaData.d_meshes,
+            hostMeshes.data(),
+            meshArrayBytes,
+            cudaMemcpyHostToDevice));
+        cudaData.numMeshes = numMeshes;
+    }
+
+    //UPLOAD BLAS'S INFORMATION TO THE DEVICE
+
+    //Allocate / free the per-mesh acceleration structure container.
+
+    const int numBVH = _blas.size();
+    hostAS.numBVH = numBVH;
+
+    //Host-side arrays of sizes and device pointers
+    std::vector<int>       bvhSizesHost(numBVH);
+    std::vector<BVHNode *> bvhPtrsHost(numBVH, nullptr);
+
+    for (int i = 0; i < numBVH; ++i) {
+        const auto &bvh = _blas[i];
+        bvhSizesHost[i] = static_cast<int>(bvh.size());
+        const size_t nodeBytes = bvh.size() * sizeof(BVHNode);
+
+        CUDA_CHECK(cudaMalloc(&bvhPtrsHost[i], nodeBytes));
+        CUDA_CHECK(cudaMemcpy(bvhPtrsHost[i],
+            bvh.data(),
+            nodeBytes,
+            cudaMemcpyHostToDevice));
+    }
+
+    //Upload the sizes of all the BLAS's
+    {
+        const size_t sizeArrayBytes = numBVH * sizeof(int);
+        CUDA_CHECK(cudaMalloc(&hostAS.d_bvhSizes, sizeArrayBytes));
+        CUDA_CHECK(cudaMemcpy(hostAS.d_bvhSizes,
+            bvhSizesHost.data(),
+            sizeArrayBytes,
+            cudaMemcpyHostToDevice));
+    }
+
+    //Upload the array of pointers to the nodes of the BLAS roots
+    {
+        const size_t ptrArrayBytes = numBVH * sizeof(BVHNode *);
+        CUDA_CHECK(cudaMalloc(&hostAS.d_bvh, ptrArrayBytes));
+        CUDA_CHECK(cudaMemcpy(hostAS.d_bvh,
+            bvhPtrsHost.data(),
+            ptrArrayBytes,
+            cudaMemcpyHostToDevice));
+    }
+
+    //Keep a host-side copy of the per-mesh BVH device pointers so we can free
+    //them later. hostAS.d_bvh lives in device memory, so it cannot be indexed
+    //from the host during cleanup.
+    blasPtrs = bvhPtrsHost;
+
+    //Upload TLAS nodes
+    if (!_tlas.empty()) {
+        const size_t tlasBytes = _tlas.size() * sizeof(TLASNode);
+        hostAS.tlasSize = static_cast<int>(_tlas.size());
+
+        CUDA_CHECK(cudaMalloc(&hostAS.d_tlas, tlasBytes));
+        CUDA_CHECK(cudaMemcpy(hostAS.d_tlas,
+            _tlas.data(),
+            tlasBytes,
+            cudaMemcpyHostToDevice));
+    }
+
+    //UPLOAD TSUKICUDAACCELERATIONSTRUCTURES
+    {
+        if (cudaData.d_accelerationStructures) {
+            CUDA_CHECK(cudaFree(cudaData.d_accelerationStructures));
+            cudaData.d_accelerationStructures = nullptr;
+        }
+
+        CUDA_CHECK(cudaMalloc(&cudaData.d_accelerationStructures,
+            sizeof(TsukiCudaAccelerationStructures)));
+        CUDA_CHECK(cudaMemcpy(cudaData.d_accelerationStructures,
+            &hostAS,
+            sizeof(TsukiCudaAccelerationStructures),
+            cudaMemcpyHostToDevice));
+    }
+
+    //Malloc and upload camera data
+    if (cudaData.d_camera) {
+        CUDA_CHECK(cudaFree(cudaData.d_camera));
+        cudaData.d_camera = nullptr;
+    }
+    CUDA_CHECK(cudaMalloc(&cudaData.d_camera, sizeof(TsukiCudaCamera)));
+}
+
+void TsukiEngine::freeCudaSceneData() {
+    //Only take charge for the stuff allocated BY CUDA
+    //Use the host-side copy of the pointers: hostAS.d_bvh is itself a device
+    //pointer, so hostAS.d_bvh[i] would dereference GPU memory on the host (-> access violation)
+    for (BVHNode *blasPtr : blasPtrs) { //Free the device-side BVH's
+        CUDA_CHECK(cudaFree(blasPtr));
+    }
+    blasPtrs.clear();
+
+    //Free the device side TLAS, and helper arrays
+    CUDA_CHECK(cudaFree(hostAS.d_bvh)); //The pointer array itself
+    CUDA_CHECK(cudaFree(hostAS.d_bvhSizes));
+    CUDA_CHECK(cudaFree(hostAS.d_tlas));
+
+    //Free the device side acceleration structures struct
+    CUDA_CHECK(cudaFree(cudaData.d_accelerationStructures));
+
+    //Free the camera
+    CUDA_CHECK(cudaFree(cudaData.d_camera));
+}
+
 
 void TsukiEngine::initImgui() { //TODO
     //Create descriptor pool for IMGUI
@@ -1558,7 +1819,7 @@ void TsukiEngine::drawImgui(VkCommandBuffer commandBuffer, VkImageView targetIma
     vkCmdEndRendering(commandBuffer);
 }
 
-void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer) {
+void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer, VkImageView imageView) {
     _benchmarker.numDrawCalls = 0;
     _benchmarker.numTriangles = 0;
     auto start = std::chrono::system_clock::now();

@@ -66,19 +66,22 @@ HANDLE tsukiutil::getVkMemoryHandle(TsukiEngine *engine, VkDeviceMemory *memory)
 }
 
 //NOTE: cudaExternalMemory_t is a tracking object for GPU memory. So this function essentially allows us to register a portion of memory with CUDA
-void tsukiutil::getCudaExternalMemory(TsukiEngine *engine, void **devicePointer, cudaExternalMemory_t *cudaMemory, VkDeviceMemory *vkMemory, VkDeviceSize size) {
+void tsukiutil::getCudaExternalMemory(TsukiEngine *engine, void **devicePointer, cudaExternalMemory_t *cudaMemory, VkDeviceMemory *vkMemory, VkDeviceSize memorySize, VkDeviceSize offset, VkDeviceSize bufferSize) {
 	//Under importCudaExternalMemory
-	
+
+	//Import the entire VkDeviceMemory block (memorySize), then map only this buffer's
+	//sub-range (offset .. offset + bufferSize). VMA suballocates many buffers into one block,
+	//so offset is frequently non-zero; mapping at offset 0 would point CUDA at the wrong data.
 	cudaExternalMemoryHandleDesc externalMemoryHandleDesc{};
 
 	externalMemoryHandleDesc.type = cudaExternalMemoryHandleTypeOpaqueWin32;
-	externalMemoryHandleDesc.size = size;
+	externalMemoryHandleDesc.size = memorySize;
 	externalMemoryHandleDesc.handle.win32.handle = (HANDLE)getVkMemoryHandle(engine, vkMemory);
 	CUDA_CHECK(cudaImportExternalMemory(cudaMemory, &externalMemoryHandleDesc));
 
 	cudaExternalMemoryBufferDesc externalMemoryBufferDesc{};
-	externalMemoryBufferDesc.offset = 0;
-	externalMemoryBufferDesc.size = size;
+	externalMemoryBufferDesc.offset = offset;
+	externalMemoryBufferDesc.size = bufferSize;
 	externalMemoryBufferDesc.flags = 0;
 	CUDA_CHECK(cudaExternalMemoryGetMappedBuffer(devicePointer, *cudaMemory, &externalMemoryBufferDesc));
 }

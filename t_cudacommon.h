@@ -43,6 +43,14 @@ struct u8vec4 {
 class TsukiCamera;
 struct TsukiCudaMesh;
 
+struct TsukiCudaCamera {
+	glm::vec3 origin;
+	glm::vec3 forward;
+	glm::vec3 right;
+	glm::vec3 up;
+	float fov;
+};
+
 struct TsukiCudaMaterialData {
 	int colorTextureIndex{ -1 };
 	int metallicRoughnessTextureIndex{ -1 };
@@ -82,14 +90,13 @@ struct TsukiCudaMesh {
 };
 
 //Forward declarations
-struct BVHNode;
-struct TLASNode;
-
 struct TsukiCudaAccelerationStructures {
 	int tlasSize{ 0 };
 	TLASNode *d_tlas;
 
 	int numBVH{ 0 };
+	glm::mat4 *d_transforms;
+	glm::mat4 *d_invTransforms;
 	int *d_bvhSizes;
 	BVHNode **d_bvh;
 };
@@ -111,7 +118,7 @@ struct TsukiCudaData { //TODO: This bottlenecks performance. I might wanna impro
 
 	unsigned numSamples;
 
-	TsukiCamera *camera;
+	TsukiCudaCamera *d_camera;
 
 	void *d_MaterialBuffer;
 
