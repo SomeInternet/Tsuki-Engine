@@ -15,8 +15,7 @@ void TsukiInput::keyCallback(GLFWwindow *window, int key, int scancode, int acti
 	if (key == GLFW_KEY_RIGHT_SHIFT) {
 		if (action == GLFW_PRESS) { input.cameraLocked = !input.cameraLocked; }
 	}
-
-	if (key == GLFW_KEY_LEFT_CONTROL) {
+	else if (key == GLFW_KEY_LEFT_CONTROL) {
 		if (action == GLFW_PRESS) { input.keyLCtrlHeld = true; }
 		if (action == GLFW_RELEASE) { input.keyLCtrlHeld = false; }
 	}
@@ -43,10 +42,11 @@ void TsukiInput::mouseButtonCallback(GLFWwindow *window, int button, int action,
 }
 
 void TsukiInput::cursorPosCallback(GLFWwindow *window, double xPos, double yPos) {
-	TsukiInput &input = reinterpret_cast<TsukiEngine *>(glfwGetWindowUserPointer(window))->input;
-	TsukiCamera &camera = reinterpret_cast<TsukiEngine *>(glfwGetWindowUserPointer(window))->camera;
+	TsukiEngine *engine = reinterpret_cast<TsukiEngine *>(glfwGetWindowUserPointer(window));
+	TsukiInput &input = engine->input;
+	TsukiCamera &camera = engine->camera;
 
-	if (input.firstMouse) {
+	if (input.firstMouse) { //On first mouse movement
 		input.firstMouse = false;
 		input.prevXPos = xPos;
 		input.prevYPos = yPos;
@@ -72,6 +72,8 @@ void TsukiInput::cursorPosCallback(GLFWwindow *window, double xPos, double yPos)
 
 			camera.origin += camera.sensitivity * (deltaX * right - deltaY * up);
 		}
+
+		engine->cudaData.numSamples = 0; //Reset the accumulated pathtracer image on camera move
 	}
 	
 	input.prevXPos = xPos;
@@ -83,12 +85,14 @@ void TsukiInput::cursorPosCallback(GLFWwindow *window, double xPos, double yPos)
 }
 
 void TsukiInput::scrollCallback(GLFWwindow *window, double xOffset, double yOffset) {
-	TsukiInput &input = reinterpret_cast<TsukiEngine *>(glfwGetWindowUserPointer(window))->input;
-	TsukiCamera &camera = reinterpret_cast<TsukiEngine *>(glfwGetWindowUserPointer(window))->camera;
+	TsukiEngine *engine = reinterpret_cast<TsukiEngine *>(glfwGetWindowUserPointer(window));
+	TsukiInput &input = engine->input;
+	TsukiCamera &camera = engine->camera;
 
 	if (!input.cameraLocked && input.keyLCtrlHeld) {
 		camera.viewDirty = true;
 		camera.radius -= static_cast<float>(yOffset) * .1f; //Zoom
+		engine->cudaData.numSamples = 0; //Reset the accumulated pathtracer image on camera move
 	}
 
 	if (!input.keyLCtrlHeld) {

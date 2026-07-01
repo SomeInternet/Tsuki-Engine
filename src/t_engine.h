@@ -221,12 +221,12 @@ public:
 	std::vector<std::vector<BVHNode>> _blas;
 	std::vector<BLASInstance> _sceneInstances;
 	std::vector<TLASNode> _tlas;
-	std::vector<glm::mat4> _tlasTransformations;
-	std::vector<glm::mat3> _tlasTransformationsInverseTranspose;
-	std::vector<glm::mat4> _tlasTransformationsInverse;
+	std::vector<glm::mat4> _tlasTransforms;
+	std::vector<glm::mat4> _tlasInvTransforms;
 	bool _tlasDirty{ false };
 
 	//CUDA INTEROP
+	VkExportMemoryAllocateInfo exportInfo;
 	VmaPool _vmaExternalPool; //Pool for allocating memory that will be exported
 
 	AllocatedBuffer cudaImageBuffer;

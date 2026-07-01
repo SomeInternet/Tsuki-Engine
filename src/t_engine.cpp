@@ -122,7 +122,7 @@ WindowsSecurityAttributes::~WindowsSecurityAttributes()
 //===================================================================================================================
 void TsukiMaterialPassPipelines::buildPipelines(TsukiEngine *engine) {
     VkShaderModule meshShader;
-    if (!tsukiutil::loadShaderModule("./Shaders/meshshader.spv", engine->_device, &meshShader)) {
+    if (!tsukiutil::loadShaderModule("./shaders/meshshader.spv", engine->_device, &meshShader)) {
         std::cerr << "Error building mesh shader" << std::endl;
     }
 
@@ -201,11 +201,9 @@ void TMeshNode::queueDraw(const glm::mat4 &matrix, TsukiDrawContext &context) {
         instance.transform = matrix * localTransform;
         context.engine->_sceneInstances.push_back(instance);
 
-        context.engine->_tlasTransformations.push_back(nodeMatrix);
-        context.engine->_tlasTransformationsInverse.push_back(glm::inverse(nodeMatrix)); //TODO: Optimize
-
-        glm::mat3 nodeMatrix3 = glm::mat3(nodeMatrix);
-        context.engine->_tlasTransformationsInverseTranspose.push_back(glm::transpose(glm::inverse(nodeMatrix3)));
+        //TODO: Push these transformations to the CUDA buffer
+        context.engine->_tlasTransforms.push_back(nodeMatrix);
+        context.engine->_tlasInvTransforms.push_back(glm::inverse(nodeMatrix)); //TODO: Optimize
     }
     TNode::queueDraw(nodeMatrix, context);
 }
@@ -227,7 +225,7 @@ void TsukiEngine::init() {
 	_window = glfwCreateWindow( WIDTH, HEIGHT, "Tsuki Engine", nullptr, nullptr);
 
     int width, height, numChannels;
-    unsigned char *data = stbi_load("Assets/logo.png", &width, &height, &numChannels, 4); //Read in the image data to a buffer
+    unsigned char *data = stbi_load("assets/logo.png", &width, &height, &numChannels, 4); //Read in the image data to a buffer
     GLFWimage logo{};
     logo.width = width;
     logo.height = height;
@@ -267,7 +265,7 @@ void TsukiEngine::init() {
     _mainDrawContext.engine = this;
 
     //TODO: Move elsewhere...?
-    _materialDataBuffer = createBuffer(1024 * sizeof(TsukiMaterialData),
+    _materialDataBuffer = createExternalBuffer(1024 * sizeof(TsukiMaterialData),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VMA_MEMORY_USAGE_GPU_ONLY);
     _mainDeletionQueue.push([&, this] {
@@ -275,7 +273,7 @@ void TsukiEngine::init() {
         });
     
     //Load the Cornell Box scene
-    std::string cornellBoxPath = "./Models/cornellbox.glb";
+    std::string cornellBoxPath = "./models/cornellbox.glb";
     auto cornellBoxFile = tsukiutil::loadGltf(this, cornellBoxPath);
     assert(cornellBoxFile.has_value());
     loadedScenes["Cornell Box"] = *cornellBoxFile;
@@ -676,7 +674,7 @@ void TsukiEngine::updateScene() {
             blas.push_back(bvh[0]);
         }
 
-        _tlas = tsukibvh::buildTLAS(blas, _sceneInstances, _tlasTransformations);
+        _tlas = tsukibvh::buildTLAS(blas, _sceneInstances, _tlasTransforms);
 
         //Re-upload TLAS to CUDA
         if (hostAS.d_tlas) {
@@ -687,6 +685,15 @@ void TsukiEngine::updateScene() {
         if (!_tlas.empty()) {
             CUDA_CHECK(cudaMalloc(&hostAS.d_tlas, _tlas.size() * sizeof(TLASNode)));
             CUDA_CHECK(cudaMemcpy(hostAS.d_tlas, _tlas.data(), _tlas.size() * sizeof(TLASNode), cudaMemcpyHostToDevice));
+        }
+
+        //Upload the transforms and inverse transforms to CUDA
+        if (!_tlasTransforms.empty()) {
+            CUDA_CHECK(cudaMalloc(&hostAS.d_transforms, _tlasTransforms.size() * sizeof(glm::mat4)));
+            CUDA_CHECK(cudaMemcpy(hostAS.d_transforms, _tlasTransforms.data(), _tlasTransforms.size() * sizeof(glm::mat4), cudaMemcpyHostToDevice));
+
+            CUDA_CHECK(cudaMalloc(&hostAS.d_invTransforms, _tlasInvTransforms.size() * sizeof(glm::mat4)));
+            CUDA_CHECK(cudaMemcpy(hostAS.d_invTransforms, _tlasInvTransforms.data(), _tlasInvTransforms.size() * sizeof(glm::mat4), cudaMemcpyHostToDevice));
         }
 
         if (!cudaData.d_accelerationStructures) {
@@ -1347,7 +1354,7 @@ void TsukiEngine::initBackgroundPipelines() { //TODO: Just copy this over to ini
     VK_CHECK(vkCreatePipelineLayout(_device, &computeLayout, nullptr, &_pathtracerPipelineLayout));
 
     VkShaderModule computeColorCorrectShader;
-    if (!tsukiutil::loadShaderModule("./Shaders/colorcorrect.spv", _device, &computeColorCorrectShader)) {
+    if (!tsukiutil::loadShaderModule("./shaders/colorcorrect.spv", _device, &computeColorCorrectShader)) {
         std::cerr << "Error building color correction compute shader" << std::endl;
     }
 
@@ -1381,7 +1388,8 @@ void TsukiEngine::initBackgroundPipelines() { //TODO: Just copy this over to ini
 
 void TsukiEngine::initCudaData() {
     //TODO: Create a dedicated VMA pool for external CUDA buffers
-    VkExportMemoryAllocateInfo exportInfo{};
+    //The export info needs to remain alive for the duration of the pool, so I'm promoting this to member of TsukiEngine. Yippee
+    exportInfo = {};
     exportInfo.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO;
     exportInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
 
@@ -1445,23 +1453,23 @@ void TsukiEngine::uploadCudaSceneData() {
     std::vector<TsukiCudaMesh> hostMeshes(numMeshes);
 
     //We also need to keep the cudaExternalMemory_t handles alive for the lifetime of the scene
+    
+    //Lambda to convert Vulkan VMA buffers to CUDA external memory
+    auto importBuffer = [&](AllocatedBuffer &vkBuffer, size_t byteSize,
+        cudaExternalMemory_t &outExtMemory,
+        void **outDPtr)
+        {
+            VmaAllocationInfo2 allocInfo{};
+            vmaGetAllocationInfo2(_allocator, vkBuffer.allocation, &allocInfo);
+
+            tsukiutil::getCudaExternalMemory(this, outDPtr, &outExtMemory, &allocInfo.allocationInfo.deviceMemory,
+                allocInfo.blockSize, allocInfo.allocationInfo.offset, byteSize);
+        };
 
     for (int i = 0; i < numMeshes; ++i) {
         auto &mesh = *meshes[i];
         auto &buffers = mesh.meshBuffers;
         TsukiCudaMesh &cm = hostMeshes[i];
-
-        //Lambda to convert Vulkan VMA buffers to CUDA external memory
-        auto importBuffer = [&](AllocatedBuffer &vkBuffer, size_t byteSize,
-            cudaExternalMemory_t &outExtMemory,
-            void **outDPtr)
-            {
-                VmaAllocationInfo2 allocInfo{};
-                vmaGetAllocationInfo2(_allocator, vkBuffer.allocation, &allocInfo);
-
-                tsukiutil::getCudaExternalMemory(this, outDPtr, &outExtMemory, &allocInfo.allocationInfo.deviceMemory,
-                    allocInfo.blockSize, allocInfo.allocationInfo.offset, byteSize);
-            };
 
         //Indices
         const size_t indexBytes = mesh.indexCount * sizeof(uint32_t);
@@ -1501,7 +1509,7 @@ void TsukiEngine::uploadCudaSceneData() {
                 reinterpret_cast<void **>(&cm.d_color));
         }
 
-        //Uvs
+        //UVs
         {
             VmaAllocationInfo ai{};
             vmaGetAllocationInfo(_allocator, buffers.uvBuffer.allocation, &ai);
@@ -1620,6 +1628,13 @@ void TsukiEngine::uploadCudaSceneData() {
         cudaData.d_camera = nullptr;
     }
     CUDA_CHECK(cudaMalloc(&cudaData.d_camera, sizeof(TsukiCudaCamera)));
+
+    //Export the Vulkan material data buffer to CUDA
+    VmaAllocationInfo materialsAllocInfo{};
+    vmaGetAllocationInfo(_allocator, _materialDataBuffer.allocation, &materialsAllocInfo);
+    importBuffer(_materialDataBuffer, materialsAllocInfo.size, cudaData.materialBufferMemory, reinterpret_cast<void**>(&cudaData.d_materialBuffer));
+
+    //TODO: Malloc and upload the transformation data
 }
 
 void TsukiEngine::freeCudaSceneData() {
@@ -1635,6 +1650,10 @@ void TsukiEngine::freeCudaSceneData() {
     CUDA_CHECK(cudaFree(hostAS.d_bvh)); //The pointer array itself
     CUDA_CHECK(cudaFree(hostAS.d_bvhSizes));
     CUDA_CHECK(cudaFree(hostAS.d_tlas));
+
+    //Free the trnasofrmations and inverse transformations
+    CUDA_CHECK(cudaFree(hostAS.d_transforms));
+    CUDA_CHECK(cudaFree(hostAS.d_invTransforms));
 
     //Free the device side acceleration structures struct
     CUDA_CHECK(cudaFree(cudaData.d_accelerationStructures));
@@ -1928,7 +1947,7 @@ void TsukiEngine::drawPathtraced(VkCommandBuffer commandBuffer) { //TODO
 
 void TsukiEngine::initMeshPipeline() {
     VkShaderModule meshShader;
-    if (!tsukiutil::loadShaderModule("./Shaders/meshshader.spv", _device, &meshShader)) {
+    if (!tsukiutil::loadShaderModule("./shaders/meshshader.spv", _device, &meshShader)) {
         std::cerr << "Error building mesh shader" << std::endl;
     }
 

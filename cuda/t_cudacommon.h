@@ -21,6 +21,8 @@
 		}																																			\
 	} while (0)
 
+#define PI 3.14159265358979323846264338327950288f
+
 #define divup(a, b) ((a % b == 0) ? (a / b) : (a / b + 1))
 
 #define BLOCKWIDTH 16
@@ -51,21 +53,6 @@ struct TsukiCudaCamera {
 	float fov;
 };
 
-struct TsukiCudaMaterialData {
-	int colorTextureIndex{ -1 };
-	int metallicRoughnessTextureIndex{ -1 };
-	int emissiveTextureIndex{ -1 };
-	int normalTextureIndex{ -1 };
-
-	glm::vec4 colorFac;
-	glm::vec4 metallicRoughnessFac;
-	glm::vec4 emissionFac;
-
-	uint8_t passPadding[16];
-
-	glm::vec4 padding[11]; //Padding to meet the 256 bytes
-};
-
 struct TsukiCudaMesh {
 	int numIndices{ 0 };
 	cudaExternalMemory_t indexBufferMemory;
@@ -90,6 +77,8 @@ struct TsukiCudaMesh {
 };
 
 //Forward declarations
+struct TsukiMaterialData; //Struct definition in loader.h
+
 struct TsukiCudaAccelerationStructures {
 	int tlasSize{ 0 };
 	TLASNode *d_tlas;
@@ -114,13 +103,14 @@ struct TsukiCudaData { //TODO: This bottlenecks performance. I might wanna impro
 	bool asBuilt{ false };
 	bool asDirty{ false };
 
-	bool resetImage{ false };
-
 	unsigned numSamples;
 
 	TsukiCudaCamera *d_camera{ nullptr };
 
-	void *d_MaterialBuffer{ nullptr };
+	//The material buffer is exported to CUDA from Vulkan
+	//Those who forget it has to be loaded to Vulkan for the rasterized view...
+	cudaExternalMemory_t materialBufferMemory;
+	TsukiMaterialData *d_materialBuffer{ nullptr };
 
 	int numMeshes;
 	TsukiCudaMesh *d_meshes{ nullptr };

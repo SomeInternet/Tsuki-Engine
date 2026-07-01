@@ -20,7 +20,7 @@ find_package(CUDAToolkit REQUIRED)
 # Root of the user-installed header/static libraries (glm, glfw, imgui, ...).
 # Override on the command line with -DTSUKI_LIBS_DIR=... if your layout differs.
 set(TSUKI_LIBS_DIR
-    "./third-party"
+    "${CMAKE_SOURCE_DIR}/third-party"
     CACHE PATH "Root directory containing glm, glfw, imgui-docking, stb, VMA, fastgltf")
 
 set(GLM_DIR        "${TSUKI_LIBS_DIR}/glm")
@@ -99,7 +99,8 @@ target_link_libraries(TsukiEngine PRIVATE
 # Compile options
 # ---------------------------------------------------------------------------
 set_target_properties(TsukiEngine PROPERTIES
-    CUDA_ARCHITECTURES "89")
+    CUDA_ARCHITECTURES "89"
+    CUDA_SEPARABLE_COMPILATION ON)
 
 target_compile_options(TsukiEngine PRIVATE
     $<$<COMPILE_LANGUAGE:CXX>:/utf-8>

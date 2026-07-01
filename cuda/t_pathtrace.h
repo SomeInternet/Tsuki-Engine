@@ -18,4 +18,6 @@ namespace tsukicudapathtrace {
 	void testImage(TsukiCudaData *cudaData, int width, int height);
 
 	void testRaytrace(TsukiCudaData *cudaData, int width, int height);
+
+	void testPathtrace(TsukiCudaData *cudaData, int width, int height);
 };
