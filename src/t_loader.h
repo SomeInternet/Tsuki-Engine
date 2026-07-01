@@ -17,22 +17,6 @@
 #include <fastgltf/parser.hpp>
 #include <fastgltf/tools.hpp>
 
-struct TsukiMaterialData {
-	int colorTextureIndex{ -1 };
-	int metallicRoughnessTextureIndex{ -1 };
-	int emissiveTextureIndex{ -1 };
-	int normalTextureIndex{ -1 };
-
-	glm::vec4 colorFac;
-	glm::vec4 metallicRoughnessFac;
-	glm::vec4 emissionFac;
-
-	TsukiMaterialPass pass;
-	uint8_t passPadding[15];
-
-	glm::vec4 padding[11]; //Padding to meet the 256 bytes
-};
-
 struct TsukiMesh {
 	std::string name;
 	DeviceMeshBuffers meshBuffers;

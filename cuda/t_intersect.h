@@ -17,7 +17,7 @@ struct TriangleIntersection {
 	float padding;
 };
 
-struct Intersection { //32 bytes (yippee)
+struct Intersection {
 	glm::vec3 normal;
 	int meshId{ -1 };
 	int primitiveId{ -1 };
@@ -69,6 +69,9 @@ namespace tsukiintersect {
 		glm::vec3 qvec = glm::cross(tvec, edge1);
 		float v = glm::dot(ray.dir, qvec) * invDet;
 		if (v < 0.f - EPSILON || u + v > 1.f + EPSILON) { return result; }
+
+		glm::vec3 out = glm::cross(-edge2, edge1);
+		if (glm::dot(out, ray.dir) > 0) { return result; } //If the vector out and the ray face the same direction, we're hitting the face from behind
 
 		result.t = glm::dot(edge2, qvec) * invDet;
 		result.u = u;

@@ -12,6 +12,9 @@
 
 #include "t_geometry.h"
 
+#include <curand.h>
+#include <curand_kernel.h>
+
 #define CUDA_CHECK(x)																																\
 	do {																																			\
 		cudaError_t err = x;																														\
@@ -76,8 +79,25 @@ struct TsukiCudaMesh {
 	int *d_materialLookupBuffer;
 };
 
-//Forward declarations
-struct TsukiMaterialData; //Struct definition in loader.h
+enum class TsukiMaterialPass : uint8_t {
+	TSUKI_MATERIAL_OPAQUE, TSUKI_MATERIAL_TRANSPARENT, TSUKI_MATERIAL_OTHER
+};
+
+struct TsukiMaterialData {
+	int colorTextureIndex{ -1 };
+	int metallicRoughnessTextureIndex{ -1 };
+	int emissiveTextureIndex{ -1 };
+	int normalTextureIndex{ -1 };
+
+	glm::vec4 colorFac;
+	glm::vec4 metallicRoughnessFac;
+	glm::vec4 emissionFac;
+
+	TsukiMaterialPass pass;
+	uint8_t passPadding[15];
+
+	glm::vec4 padding[11]; //Padding to meet the 256 bytes
+};
 
 struct TsukiCudaAccelerationStructures {
 	int tlasSize{ 0 };
@@ -103,7 +123,7 @@ struct TsukiCudaData { //TODO: This bottlenecks performance. I might wanna impro
 	bool asBuilt{ false };
 	bool asDirty{ false };
 
-	unsigned numSamples;
+	unsigned numSamples{ 0 };
 
 	TsukiCudaCamera *d_camera{ nullptr };
 
@@ -115,4 +135,6 @@ struct TsukiCudaData { //TODO: This bottlenecks performance. I might wanna impro
 	int numMeshes;
 	TsukiCudaMesh *d_meshes{ nullptr };
 	TsukiCudaAccelerationStructures *d_accelerationStructures{ nullptr };
+
+	curandState *d_curandStates{ nullptr };
 };

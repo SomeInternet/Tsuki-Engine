@@ -362,7 +362,7 @@ void TsukiEngine::draw() {
         tsukiutil::copyBufferToImage(commandBuffer, _drawImage.image, cudaImageBuffer.buffer, { _drawImage.imageExtent.width, _drawImage.imageExtent.height }, 0);
 
         //Draw the CUDA compute background
-        tsukicudapathtrace::testRaytrace(&cudaData, _drawImage.imageExtent.width, _drawImage.imageExtent.height);
+        tsukicudapathtrace::testPathtrace(&cudaData, _drawImage.imageExtent.width, _drawImage.imageExtent.height);
     }
     {
         VkImageLayout prevLayout = (_renderMode == TsukiRenderMode::TSUKI_RENDER_MODE_PATHTRACED_CUDA) ? VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED;
@@ -1439,8 +1439,16 @@ void TsukiEngine::initCudaData() {
         &(cudaImageBufferAllocInfo.allocationInfo.deviceMemory), cudaImageBufferAllocInfo.blockSize,
         cudaImageBufferAllocInfo.allocationInfo.offset, imageBufferSize);
 
-    //The CUDA vertex buffer and index buffer will be populated when a glTF is loaded
+    CUDA_CHECK(cudaMalloc(&cudaData.d_curandStates, WIDTH * HEIGHT * sizeof(curandState)));
     
+    //Init the curands for sampling
+    tsukicudapathtrace::initCurand(&cudaData, WIDTH, HEIGHT);
+
+    _mainDeletionQueue.push([&]() {
+        cudaFree(cudaData.d_curandStates);
+        });
+
+    //The CUDA vertex buffer and index buffer will be populated when a glTF is loaded
 }
 
 void TsukiEngine::uploadCudaSceneData() {

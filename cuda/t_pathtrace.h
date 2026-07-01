@@ -15,6 +15,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace tsukicudapathtrace {
+	void initCurand(TsukiCudaData *cudaData, int width, int height);
+
 	void testImage(TsukiCudaData *cudaData, int width, int height);
 
 	void testRaytrace(TsukiCudaData *cudaData, int width, int height);

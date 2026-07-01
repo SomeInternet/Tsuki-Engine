@@ -120,10 +120,6 @@ struct SceneData { //TODO: Update
 
 //MATERIALS
 //===================================================================================================================
-enum class TsukiMaterialPass : uint8_t {
-	TSUKI_MATERIAL_OPAQUE, TSUKI_MATERIAL_TRANSPARENT, TSUKI_MATERIAL_OTHER
-};
-
 //Contains handles for the pipeline objects of a material
 struct TsukiMaterialPipeline {
 	VkPipeline pipeline;

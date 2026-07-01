@@ -2,6 +2,28 @@
 #include "t_pathtrace.h"
 #include "t_interop.h"
 #include "t_intersect.h"
+#include "t_sample.h"
+
+#define MAX_BOUNCES 10
+
+//UTILITY
+//===================================================================================================================
+__device__ inline Ray raycast(int threadX, int threadY, int width, int height, TsukiCudaCamera *camera) {
+	float screenX = (float)(threadX - width / 2) / (float)(width / 2);
+	float screenY = (float)(height / 2 - threadY) / (float)(height / 2);
+
+	glm::vec3 ref = camera->origin + camera->forward;
+	float tanFov = glm::tan(glm::radians(camera->fov / 2.f));
+	glm::vec3 v = tanFov * camera->up;
+	glm::vec3 h = tanFov * (float)(width) / (float)(height)*camera->right;
+	glm::vec3 screenPoint = ref + screenX * h + screenY * v;
+
+	//Create the ray
+	Ray ray{};
+	ray.origin = camera->origin;
+	ray.dir = glm::normalize(screenPoint - ray.origin);
+	return ray;
+}
 
 //TODO: Investigate slight precision issues at edge boundaries
 __device__ Intersection intersectScene(TsukiCudaAccelerationStructures *accelerationStructures, TsukiCudaMesh *meshes, TsukiMaterialData *materials,
@@ -82,11 +104,26 @@ __device__ Intersection intersectScene(TsukiCudaAccelerationStructures *accelera
 		else { result.normal = glm::vec3((1.f - result.u - result.v) * v1Nor + result.u * v2Nor + result.v * v3Nor); }
 
 		//Transform the normal by the object transform
-		result.normal = glm::transpose(glm::mat3(accelerationStructures->d_invTransforms[instanceId])) * result.normal;
+		result.normal = glm::normalize(glm::transpose(glm::mat3(accelerationStructures->d_invTransforms[instanceId])) * result.normal);
 	}
 	return result;
 }
 
+__device__ inline glm::mat3 getNormalRot(glm::vec3 normal) {
+	glm::vec3 tangent = fabsf(normal.x) > fabsf(normal.y) ? glm::vec3(-normal.z, 0, normal.x) / sqrtf(normal.x * normal.x + normal.z * normal.z) :
+		glm::vec3(0, normal.z, -normal.y) / sqrtf(normal.y * normal.y + normal.z * normal.z);
+
+	glm::vec3 bitangent = glm::cross(normal, tangent);
+
+	return glm::mat3(tangent, bitangent, normal);
+}
+
+__device__ inline glm::vec3 rayAt(Ray ray, float t) {
+	return ray.origin + ray.dir * t;
+}
+
+//ACTUAL FUNCTIONS
+//===================================================================================================================
 __global__ void kernTestImage(glm::vec4 *outImage, int width, int height) {
 	int threadX = blockIdx.x * blockDim.x + threadIdx.x;
 	int threadY = blockIdx.y * blockDim.y + threadIdx.y;
@@ -110,19 +147,7 @@ __global__ void kernTestRaytrace(glm::vec4 *outImage, TsukiCudaAccelerationStruc
 
 	if (threadX >= width || threadY >= height) { return; }
 
-	float screenX = (float)(threadX - width / 2) / (float)(width / 2);
-	float screenY = (float)(height / 2 - threadY) / (float)(height / 2);
-
-	glm::vec3 ref = camera->origin + camera->forward;
-	float tanFov = glm::tan(glm::radians(camera->fov / 2.f));
-	glm::vec3 v = tanFov * camera->up;
-	glm::vec3 h = tanFov * (float)(width) / (float)(height) * camera->right;
-	glm::vec3 screenPoint = ref + screenX * h + screenY * v;
-
-	//Create the ray
-	Ray ray{};
-	ray.origin = camera->origin;
-	ray.dir = glm::normalize(screenPoint - ray.origin);
+	Ray ray = raycast(threadX, threadY, width, height, camera);
 
 	if (accelerationStructures->tlasSize <= 0) {
 		outImage[threadY * width + threadX] = glm::vec4(0);
@@ -141,13 +166,72 @@ __global__ void kernTestRaytrace(glm::vec4 *outImage, TsukiCudaAccelerationStruc
 	}
 }
 
-__global__ void kernTestPathtrace(glm::vec4 *outImage, TsukiCudaAccelerationStructures *accelerationStructures, TsukiCudaMesh *meshes, TsukiMaterialData *materials, 
-	TsukiCudaCamera *camera, int width, int height, unsigned numSamples) {
+__global__ void kernCurandSetup(curandState *state, int width, int height) {
+	int threadX = blockIdx.x * blockDim.x + threadIdx.x;
+	int threadY = blockIdx.y * blockDim.y + threadIdx.y;
 
+	if (threadX >= width || threadY >= height) { return; }
+
+	int index = threadY * width + threadX;
+
+	curand_init(1ULL, index, 0, &state[index]);
+}
+
+__global__ void kernTestPathtrace(glm::vec4 *outImage, TsukiCudaAccelerationStructures *accelerationStructures, TsukiCudaMesh *meshes, TsukiMaterialData *materials, 
+	TsukiCudaCamera *camera, curandState *state, int width, int height, unsigned numSamples) {
+	int threadX = blockIdx.x * blockDim.x + threadIdx.x;
+	int threadY = blockIdx.y * blockDim.y + threadIdx.y;
+
+	if (threadX >= width || threadY >= height) { return; }
+	int index = threadY * width + threadX;
+
+	glm::vec3 throughput{ 1 };
+	Ray ray = raycast(threadX, threadY, width, height, camera);
+
+	glm::vec3 irradiance{ 0 };
+	Intersection isect{};
+	for (int i = 0; i < MAX_BOUNCES; ++i) {
+		isect = intersectScene(accelerationStructures, meshes, materials, camera, ray);
+
+		//TODO: Handle thread divergence
+		//Didn't hit scene
+		if (isect.t == INFINITY) {
+			//irradiance = glm::vec3(.1);
+			break;
+		}
+
+		//Hit light source
+		int materialId = meshes[isect.meshId].d_materialLookupBuffer[isect.primitiveId];
+		glm::vec4 luminance = materials[materialId].emissionFac;
+		if (glm::length(glm::vec3(luminance)) > 0.f) { //TODO: Fix emission importing (?)
+			irradiance = 10.f * glm::vec3(luminance);
+			break;
+		}
+
+		//Bounce
+		curandState *rng = &state[index];
+		glm::vec2 xi = glm::vec2(curand_uniform(rng), curand_uniform(rng));
+		glm::vec3 wi = getNormalRot(isect.normal) * tsukisample::toHemisphereCosineWeighted(xi);
+		throughput *= glm::vec3(materials[materialId].colorFac);
+		ray.origin = rayAt(ray, isect.t) + isect.normal * EPSILON;
+		ray.dir = wi;
+	}
+
+	outImage[index] = (float)(numSamples) *outImage[index] / (float)(numSamples + 1) + glm::vec4(throughput * irradiance / float(numSamples + 1), 1);
 }
 
 //TSUKICUDAPATHTRACE
 //===================================================================================================================
+void tsukicudapathtrace::initCurand(TsukiCudaData *cudaData, int width, int height) {
+	TsukiLaunchDims dims;
+	dims.gridDim = dim3(divup(width, BLOCKWIDTH), divup(height, BLOCKHEIGHT), 1);
+	dims.blockDim = dim3(BLOCKWIDTH, BLOCKHEIGHT, 1);
+	kernCurandSetup<<<dims.gridDim, dims.blockDim>>>(cudaData->d_curandStates, width, height);
+
+	CUDA_CHECK(cudaGetLastError());
+	CUDA_CHECK(cudaDeviceSynchronize());
+}
+
 void tsukicudapathtrace::testImage(TsukiCudaData *cudaData, int width, int height) {
 	//TODO: Wait on external semaphore
 	cudaExternalSemaphoreWaitParams waitParams{}; //Unimportant for binary semaphores
@@ -185,9 +269,24 @@ void tsukicudapathtrace::testRaytrace(TsukiCudaData *cudaData, int width, int he
 }
 
 void tsukicudapathtrace::testPathtrace(TsukiCudaData *cudaData, int width, int height) {
-	//TODO: Initialize cuRand (not here)
+	//TODO: Wait on semaphores
+	cudaExternalSemaphoreWaitParams waitParams{}; //Unimportant for binary semaphores
+	cudaWaitExternalSemaphoresAsync(&(cudaData->_cudaCopyFinishedSemaphore), &waitParams, 1);
 
-	//TODO: Launch pathtracing kernels
+	//TODO: Launch pathtracing kernel(s)
+	Ray *rays;
+	TsukiLaunchDims dims;
+	dims.gridDim = dim3(divup(width, BLOCKWIDTH), divup(height, BLOCKHEIGHT), 1);
+	dims.blockDim = dim3(BLOCKWIDTH, BLOCKHEIGHT, 1);
+	kernTestPathtrace << <dims.gridDim, dims.blockDim >> > (reinterpret_cast<glm::vec4 *>(cudaData->imageBuffer), cudaData->d_accelerationStructures, cudaData->d_meshes, cudaData->d_materialBuffer,
+		cudaData->d_camera, cudaData->d_curandStates, width, height, cudaData->numSamples);
+
+	CUDA_CHECK(cudaGetLastError());
+	CUDA_CHECK(cudaDeviceSynchronize());
+
+	++cudaData->numSamples;
 
 	//TODO: Signal semaphores
+	cudaExternalSemaphoreSignalParams signalParams{};
+	cudaSignalExternalSemaphoresAsync(&(cudaData->_cudaSampleFinishedSemaphore), &signalParams, 1);
 }
