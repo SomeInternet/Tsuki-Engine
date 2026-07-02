@@ -361,7 +361,6 @@ void TsukiEngine::draw() {
         tsukiutil::transitionImageLayout(commandBuffer, _drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         tsukiutil::copyBufferToImage(commandBuffer, _drawImage.image, cudaImageBuffer.buffer, { _drawImage.imageExtent.width, _drawImage.imageExtent.height }, 0);
 
-        //Draw the CUDA compute background
         tsukicudapathtrace::testPathtrace(&cudaData, _drawImage.imageExtent.width, _drawImage.imageExtent.height);
     }
     {
@@ -490,6 +489,27 @@ void TsukiEngine::run() {
                             if (isSelected) {
                                 ImGui::SetItemDefaultFocus();
                                 viewMode = static_cast<ViewMode>(i);
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+                }
+                {
+                    std::vector<const char *> items = { "Reinhardt", "ACES"};
+                    static const char *selected = items[0];
+
+                    if (ImGui::BeginCombo("Tone Mapping Mode", selected)) {
+                        for (int i = 0; i < items.size(); ++i) {
+                            bool isSelected = (selected == items[i]);
+                            if (ImGui::Selectable(items[i], isSelected)) {
+                                selected = items[i];
+                            }
+
+                            isSelected = (selected == items[i]);
+
+                            if (isSelected) {
+                                ImGui::SetItemDefaultFocus();
+                                _toneMapMode = static_cast<ToneMapMode>(i);
                             }
                         }
                         ImGui::EndCombo();
@@ -1351,6 +1371,14 @@ void TsukiEngine::initBackgroundPipelines() { //TODO: Just copy this over to ini
     computeLayout.setLayoutCount = 1;
     computeLayout.pSetLayouts = &_drawImageDescriptorLayout; //Plug in the descriptor set layout, promising certain kinds of resources
 
+    VkPushConstantRange toneMapRange{};
+    toneMapRange.offset = 0;
+    toneMapRange.size = sizeof(ToneMapMode);
+    toneMapRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    computeLayout.pushConstantRangeCount = 1;
+    computeLayout.pPushConstantRanges = &toneMapRange;
+
     VK_CHECK(vkCreatePipelineLayout(_device, &computeLayout, nullptr, &_pathtracerPipelineLayout));
 
     VkShaderModule computeColorCorrectShader;
@@ -1944,6 +1972,9 @@ void TsukiEngine::drawPathtraced(VkCommandBuffer commandBuffer) { //TODO
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, _pathtracerPipeline);
     //Bind the descriptor set with the draw image for the compute pass
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, _pathtracerPipelineLayout, 0, 1, &_drawImageDescriptors, 0, nullptr);
+
+    //Push the, er, push constants for the tone mapping type
+    vkCmdPushConstants(commandBuffer, _pathtracerPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ToneMapMode), & _toneMapMode);
 
     //Dispatch
     vkCmdDispatch(commandBuffer, std::ceil(_drawExtent.width / 32.f), std::ceil(_drawExtent.height / 32.f), 1); //Like a kernel launch

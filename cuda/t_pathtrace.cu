@@ -8,9 +8,17 @@
 
 //UTILITY
 //===================================================================================================================
-__device__ inline Ray raycast(int threadX, int threadY, int width, int height, TsukiCudaCamera *camera) {
-	float screenX = (float)(threadX - width / 2) / (float)(width / 2);
-	float screenY = (float)(height / 2 - threadY) / (float)(height / 2);
+__device__ inline Ray raycast(int width, int height, curandState *rng, TsukiCudaCamera *camera) {
+	int threadX = blockIdx.x * blockDim.x + threadIdx.x;
+	int threadY = blockIdx.y * blockDim.y + threadIdx.y;
+
+	if (threadX >= width || threadY >= height) { return; }
+	int index = threadY * width + threadX;
+
+	glm::vec2 aaOffset = (rng == nullptr) ? glm::vec2(0, 0) : (glm::vec2(curand_uniform(rng), curand_uniform(rng)) - glm::vec2(.5)); //For anti-aliasing
+
+	float screenX = (float)(threadX + aaOffset.x - width / 2) / (float)(width / 2);
+	float screenY = (float)(height / 2 - threadY - aaOffset.y) / (float)(height / 2);
 
 	glm::vec3 ref = camera->origin + camera->forward;
 	float tanFov = glm::tan(glm::radians(camera->fov / 2.f));
@@ -147,7 +155,7 @@ __global__ void kernTestRaytrace(glm::vec4 *outImage, TsukiCudaAccelerationStruc
 
 	if (threadX >= width || threadY >= height) { return; }
 
-	Ray ray = raycast(threadX, threadY, width, height, camera);
+	Ray ray = raycast(width, height, nullptr, camera);
 
 	if (accelerationStructures->tlasSize <= 0) {
 		outImage[threadY * width + threadX] = glm::vec4(0);
@@ -184,9 +192,10 @@ __global__ void kernTestPathtrace(glm::vec4 *outImage, TsukiCudaAccelerationStru
 
 	if (threadX >= width || threadY >= height) { return; }
 	int index = threadY * width + threadX;
+	curandState *rng = &state[index];
 
 	glm::vec3 throughput{ 1 };
-	Ray ray = raycast(threadX, threadY, width, height, camera);
+	Ray ray = raycast(width, height, rng, camera);
 
 	glm::vec3 irradiance{ 0 };
 	Intersection isect{};
@@ -204,12 +213,12 @@ __global__ void kernTestPathtrace(glm::vec4 *outImage, TsukiCudaAccelerationStru
 		int materialId = meshes[isect.meshId].d_materialLookupBuffer[isect.primitiveId];
 		glm::vec4 luminance = materials[materialId].emissionFac;
 		if (glm::length(glm::vec3(luminance)) > 0.f) { //TODO: Fix emission importing (?)
-			irradiance = 10.f * glm::vec3(luminance);
+			irradiance = glm::vec3(luminance);
 			break;
 		}
 
 		//Bounce
-		curandState *rng = &state[index];
+		
 		glm::vec2 xi = glm::vec2(curand_uniform(rng), curand_uniform(rng));
 		glm::vec3 wi = getNormalRot(isect.normal) * tsukisample::toHemisphereCosineWeighted(xi);
 		throughput *= glm::vec3(materials[materialId].colorFac);

@@ -101,6 +101,10 @@ enum ViewMode {
 	VIEW_SOLID, VIEW_COLOR, VIEW_NORMAL
 };
 
+enum ToneMapMode {
+	TONE_REINHARDT, TONE_ACES
+};
+
 struct DrawPushConstants {
 	glm::mat4 worldMatrix;
 	glm::mat4 inverseTranspose;
