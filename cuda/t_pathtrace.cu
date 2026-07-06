@@ -179,7 +179,7 @@ __device__ glm::vec3 viewAccelerationStructures(TsukiCudaAccelerationStructures 
 			currTLASNodeId = currTLASNode.nextNodeId; //Tree done, escape
 		}
 		else { //Hit and interior node, so traverse deeper (TLAS)
-			accumulated += glm::vec3(.05);
+			//accumulated += glm::vec3(.05);
 			++currTLASNodeId;
 		}
 	} while (currTLASNodeId != 0 && currTLASNodeId < accelerationStructures->tlasSize);
