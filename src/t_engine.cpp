@@ -27,6 +27,8 @@
 
 #include "stb_image.h"
 
+#include <nfd.hpp>
+
 #if _DEBUG
 constexpr bool enableValidationLayers = true;
 #else
@@ -510,6 +512,30 @@ void TsukiEngine::run() {
                             if (isSelected) {
                                 ImGui::SetItemDefaultFocus();
                                 _toneMapMode = static_cast<ToneMapMode>(i);
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+                }
+                {
+                    std::vector<const char *> items = { "None", "Acceleration Structures" };
+                    static const char *selected = items[0];
+
+                    if (ImGui::BeginCombo("Debug View", selected)) {
+                        for (int i = 0; i < items.size(); ++i) {
+                            bool isSelected = (selected == items[i]);
+                            if (ImGui::Selectable(items[i], isSelected)) {
+                                selected = items[i];
+                            }
+
+                            isSelected = (selected == items[i]);
+
+                            if (isSelected) {
+                                ImGui::SetItemDefaultFocus();
+                                if (cudaData.debugMode != static_cast<TsukiPathtraceDebug>(i)) { //Reset the accumulated image
+                                    cudaData.numSamples = 0;
+                                }
+                                cudaData.debugMode = static_cast<TsukiPathtraceDebug>(i);
                             }
                         }
                         ImGui::EndCombo();

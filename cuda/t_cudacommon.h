@@ -110,6 +110,10 @@ struct TsukiCudaAccelerationStructures {
 	BVHNode **d_bvh;
 };
 
+enum TsukiPathtraceDebug : uint8_t {
+	DEBUG_NONE, DEBUG_VIEW_AS
+};
+
 struct TsukiCudaData { //TODO: This bottlenecks performance. I might wanna improve this later...
 	cudaExternalSemaphore_t _cudaSampleFinishedSemaphore;
 	cudaExternalSemaphore_t _cudaCopyFinishedSemaphore;
@@ -131,6 +135,8 @@ struct TsukiCudaData { //TODO: This bottlenecks performance. I might wanna impro
 	//Those who forget it has to be loaded to Vulkan for the rasterized view...
 	cudaExternalMemory_t materialBufferMemory;
 	TsukiMaterialData *d_materialBuffer{ nullptr };
+
+	TsukiPathtraceDebug debugMode{ TsukiPathtraceDebug::DEBUG_NONE };
 
 	int numMeshes;
 	TsukiCudaMesh *d_meshes{ nullptr };

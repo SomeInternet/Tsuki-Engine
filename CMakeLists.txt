@@ -29,6 +29,7 @@ set(IMGUI_DIR      "${TSUKI_LIBS_DIR}/imgui-docking")
 set(STB_DIR        "${TSUKI_LIBS_DIR}/stb-master")
 set(VMA_DIR        "${TSUKI_LIBS_DIR}/VulkanMemoryAllocator-master")
 set(FASTGLTF_DIR   "${TSUKI_LIBS_DIR}/fastgltf")
+set(NFD_DIR        "${TSUKI_LIBS_DIR}/nativefiledialog-extended-master")
 
 # ---------------------------------------------------------------------------
 # ImGui (compiled from source, docking branch)
@@ -41,6 +42,11 @@ set(IMGUI_SOURCES
     "${IMGUI_DIR}/imgui_widgets.cpp"
     "${IMGUI_DIR}/backends/imgui_impl_glfw.cpp"
     "${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp")
+
+# ---------------------------------------------------------------------------
+# Native File Dialog (compiled from source; provides the "nfd" target)
+# ---------------------------------------------------------------------------
+add_subdirectory("${NFD_DIR}" "${CMAKE_BINARY_DIR}/nfd")
 
 # ---------------------------------------------------------------------------
 # Engine sources
@@ -76,7 +82,8 @@ target_include_directories(TsukiEngine PRIVATE
     "${IMGUI_DIR}"
     "${STB_DIR}"
     "${VMA_DIR}/include"
-    "${FASTGLTF_DIR}/include")
+    "${FASTGLTF_DIR}/include"
+    "${NFD_DIR}/src/include")
 # Vulkan::Vulkan and CUDA::cudart bring their own include dirs transitively.
 
 # ---------------------------------------------------------------------------
@@ -93,7 +100,8 @@ target_link_libraries(TsukiEngine PRIVATE
     CUDA::cudart
     glfw3
     fastgltf
-    fastgltf_simdjson)
+    fastgltf_simdjson
+    nfd)
 
 # ---------------------------------------------------------------------------
 # Compile options

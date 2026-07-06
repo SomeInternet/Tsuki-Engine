@@ -38,14 +38,13 @@ __device__ Intersection intersectScene(TsukiCudaAccelerationStructures *accelera
 	TsukiCudaCamera *camera, Ray ray) {
 	//Traverse the acceleration structures (stackless skip-pointer traversal).
 	Intersection result{};
-	float minT = INFINITY;
 
 	int instanceId = -1;
 	int currTLASNodeId = 0;
 	//Outer loop: Traverse TLAS
 	do {
 		TLASNode currTLASNode = accelerationStructures->d_tlas[currTLASNodeId];
-		bool tlasHit = tsukiintersect::intersectBoundingBox(currTLASNode.bounds, ray) < minT;
+		bool tlasHit = tsukiintersect::intersectBoundingBox(currTLASNode.bounds, ray) < result.t;
 
 		if (!tlasHit) {
 			currTLASNodeId = currTLASNode.nextNodeId; //Miss
@@ -65,7 +64,7 @@ __device__ Intersection intersectScene(TsukiCudaAccelerationStructures *accelera
 			//warpedRay.dir = ray.dir;
 			do {
 				BVHNode currBLASNode = bvh[currBLASNodeId];
-				bool blasHit = tsukiintersect::intersectBoundingBox(currBLASNode.bounds, warpedRay) < minT;
+				bool blasHit = tsukiintersect::intersectBoundingBox(currBLASNode.bounds, warpedRay) < result.t;
 
 				if (!blasHit) {
 					currBLASNodeId = currBLASNode.nextNodeId; //Miss
@@ -115,6 +114,77 @@ __device__ Intersection intersectScene(TsukiCudaAccelerationStructures *accelera
 		result.normal = glm::normalize(glm::transpose(glm::mat3(accelerationStructures->d_invTransforms[instanceId])) * result.normal);
 	}
 	return result;
+}
+
+__device__ glm::vec3 viewAccelerationStructures(TsukiCudaAccelerationStructures *accelerationStructures, TsukiCudaMesh *meshes, TsukiMaterialData *materials,
+	TsukiCudaCamera *camera, Ray ray) {
+	//Traverse the acceleration structures (stackless skip-pointer traversal).
+	glm::vec3 accumulated = glm::vec3(0);
+
+	int instanceId = -1;
+	int currTLASNodeId = 0;
+	//Outer loop: Traverse TLAS
+	do {
+		TLASNode currTLASNode = accelerationStructures->d_tlas[currTLASNodeId];
+		bool tlasHit = tsukiintersect::intersectBoundingBox(currTLASNode.bounds, ray) < INFINITY;
+
+		if (!tlasHit) {
+			currTLASNodeId = currTLASNode.nextNodeId; //Miss
+		}
+		else if (currTLASNode.blasNodeId >= 0) { //Hit, and leaf
+			accumulated += glm::vec3(.05);
+			int currMeshId = currTLASNode.blasNodeId;
+			BVHNode *bvh = accelerationStructures->d_bvh[currMeshId];
+			int bvhSize = accelerationStructures->d_bvhSizes[currMeshId];
+
+			int currBLASNodeId = 0;
+			//Inner loop: traverse BLAS
+			//Warp ray with the transform of the node
+			Ray warpedRay{};
+			warpedRay.origin = glm::vec3(accelerationStructures->d_invTransforms[currTLASNode.blasNodeId] * glm::vec4(ray.origin, 1));
+			warpedRay.dir = glm::vec3(accelerationStructures->d_invTransforms[currTLASNode.blasNodeId] * glm::vec4(ray.dir, 0));
+			//warpedRay.origin = ray.origin;
+			//warpedRay.dir = ray.dir;
+			do {
+				BVHNode currBLASNode = bvh[currBLASNodeId];
+				bool blasHit = tsukiintersect::intersectBoundingBox(currBLASNode.bounds, warpedRay) < INFINITY;
+
+				if (!blasHit) {
+					currBLASNodeId = currBLASNode.nextNodeId; //Miss
+				}
+				else if (currBLASNode.primitiveId >= 0) { //Hit and leaf
+					accumulated += glm::vec3(.05);
+					uint32_t i1 = meshes[currMeshId].d_indexBuffer[currBLASNode.primitiveId * 3];
+					uint32_t i2 = meshes[currMeshId].d_indexBuffer[currBLASNode.primitiveId * 3 + 1];
+					uint32_t i3 = meshes[currMeshId].d_indexBuffer[currBLASNode.primitiveId * 3 + 2];
+
+					glm::vec3 v1 = glm::vec3(meshes[currMeshId].d_pos[i1]);
+					glm::vec3 v2 = glm::vec3(meshes[currMeshId].d_pos[i2]);
+					glm::vec3 v3 = glm::vec3(meshes[currMeshId].d_pos[i3]);
+
+					TriangleIntersection triIsect = tsukiintersect::intersectTriangle(v1, v2, v3, warpedRay);
+
+					if (triIsect.t < INFINITY) {
+						accumulated += glm::vec3(0.05);
+					}
+
+					currBLASNodeId = currBLASNode.nextNodeId; //Tree done, escape
+				}
+				else { //Hit and interior node, so traverse deeper (BLAS)
+					accumulated += glm::vec3(.05);
+					++currBLASNodeId;
+				}
+			} while (currBLASNodeId != 0 && currBLASNodeId < bvhSize);
+
+			currTLASNodeId = currTLASNode.nextNodeId; //Tree done, escape
+		}
+		else { //Hit and interior node, so traverse deeper (TLAS)
+			accumulated += glm::vec3(.05);
+			++currTLASNodeId;
+		}
+	} while (currTLASNodeId != 0 && currTLASNodeId < accelerationStructures->tlasSize);
+
+	return glm::clamp(accumulated, glm::vec3(0), glm::vec3(1));
 }
 
 __device__ inline glm::mat3 getNormalRot(glm::vec3 normal) {
@@ -229,6 +299,25 @@ __global__ void kernTestPathtrace(glm::vec4 *outImage, TsukiCudaAccelerationStru
 	outImage[index] = (float)(numSamples) *outImage[index] / (float)(numSamples + 1) + glm::vec4(throughput * irradiance / float(numSamples + 1), 1);
 }
 
+__global__ void kernViewAccelerationStructures(glm::vec4 *outImage, TsukiCudaAccelerationStructures *accelerationStructures, TsukiCudaMesh *meshes, TsukiMaterialData *materials,
+	TsukiCudaCamera *camera, int width, int height) {
+	int threadX = blockIdx.x * blockDim.x + threadIdx.x;
+	int threadY = blockIdx.y * blockDim.y + threadIdx.y;
+
+	if (threadX >= width || threadY >= height) { return; }
+
+	Ray ray = raycast(width, height, nullptr, camera);
+
+	if (accelerationStructures->tlasSize <= 0) {
+		outImage[threadY * width + threadX] = glm::vec4(0);
+		return;
+	}
+
+	glm::vec3 asView = viewAccelerationStructures(accelerationStructures, meshes, materials, camera, ray);
+
+	outImage[threadY * width + threadX] = glm::vec4(asView, 1.);
+}
+
 //TSUKICUDAPATHTRACE
 //===================================================================================================================
 void tsukicudapathtrace::initCurand(TsukiCudaData *cudaData, int width, int height) {
@@ -287,8 +376,15 @@ void tsukicudapathtrace::testPathtrace(TsukiCudaData *cudaData, int width, int h
 	TsukiLaunchDims dims;
 	dims.gridDim = dim3(divup(width, BLOCKWIDTH), divup(height, BLOCKHEIGHT), 1);
 	dims.blockDim = dim3(BLOCKWIDTH, BLOCKHEIGHT, 1);
-	kernTestPathtrace << <dims.gridDim, dims.blockDim >> > (reinterpret_cast<glm::vec4 *>(cudaData->imageBuffer), cudaData->d_accelerationStructures, cudaData->d_meshes, cudaData->d_materialBuffer,
-		cudaData->d_camera, cudaData->d_curandStates, width, height, cudaData->numSamples);
+	if (cudaData->debugMode == TsukiPathtraceDebug::DEBUG_NONE) {
+		kernTestPathtrace << <dims.gridDim, dims.blockDim >> > (reinterpret_cast<glm::vec4 *>(cudaData->imageBuffer), cudaData->d_accelerationStructures, cudaData->d_meshes, cudaData->d_materialBuffer,
+			cudaData->d_camera, cudaData->d_curandStates, width, height, cudaData->numSamples);
+	}
+	else if (cudaData->debugMode == TsukiPathtraceDebug::DEBUG_VIEW_AS) {
+		kernViewAccelerationStructures << <dims.gridDim, dims.blockDim >> > (reinterpret_cast<glm::vec4 *>(cudaData->imageBuffer), cudaData->d_accelerationStructures, cudaData->d_meshes,
+			cudaData->d_materialBuffer, cudaData->d_camera, width, height);
+	}
+	
 
 	CUDA_CHECK(cudaGetLastError());
 	CUDA_CHECK(cudaDeviceSynchronize());
