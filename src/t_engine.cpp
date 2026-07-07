@@ -275,7 +275,7 @@ void TsukiEngine::init() {
         });
     
     //Load the Cornell Box scene
-    std::string cornellBoxPath = "./models/cornellbox.glb";
+    std::string cornellBoxPath = "./models/cornellbox_plasticball.glb";
     auto cornellBoxFile = tsukiutil::loadGltf(this, cornellBoxPath);
     assert(cornellBoxFile.has_value());
     loadedScenes["Cornell Box"] = *cornellBoxFile;

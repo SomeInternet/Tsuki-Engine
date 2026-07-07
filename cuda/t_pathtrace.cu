@@ -3,6 +3,7 @@
 #include "t_interop.h"
 #include "t_intersect.h"
 #include "t_sample.h"
+#include "t_bsdf.h"
 
 #define MAX_BOUNCES 10
 
@@ -132,7 +133,7 @@ __device__ glm::vec3 viewAccelerationStructures(TsukiCudaAccelerationStructures 
 			currTLASNodeId = currTLASNode.nextNodeId; //Miss
 		}
 		else if (currTLASNode.blasNodeId >= 0) { //Hit, and leaf
-			accumulated += glm::vec3(.05);
+			//accumulated += glm::vec3(.05);
 			int currMeshId = currTLASNode.blasNodeId;
 			BVHNode *bvh = accelerationStructures->d_bvh[currMeshId];
 			int bvhSize = accelerationStructures->d_bvhSizes[currMeshId];
@@ -280,18 +281,47 @@ __global__ void kernTestPathtrace(glm::vec4 *outImage, TsukiCudaAccelerationStru
 		}
 
 		//Hit light source
-		int materialId = meshes[isect.meshId].d_materialLookupBuffer[isect.primitiveId];
-		glm::vec4 luminance = materials[materialId].emissionFac;
+		//The material lookup buffer is per-vertex (see the rasterizer's meshshader.slang), so index it by one of
+		//the triangle's vertex indices rather than the primitive/triangle id (which overruns the buffer for meshes
+		//where triangleCount > vertexCount, e.g. closed spheres).
+		uint32_t materialVertexIndex = meshes[isect.meshId].d_indexBuffer[3 * isect.primitiveId];
+		int materialId = meshes[isect.meshId].d_materialLookupBuffer[materialVertexIndex];
+		TsukiMaterialData material = materials[materialId];
+		glm::vec4 luminance = material.emissionFac;
 		if (glm::length(glm::vec3(luminance)) > 0.f) { //TODO: Fix emission importing (?)
 			irradiance = glm::vec3(luminance);
 			break;
 		}
 
 		//Bounce
-		
+		glm::mat3 rot = getNormalRot(isect.normal);
+		glm::mat3 invRot = glm::transpose(rot);
 		glm::vec2 xi = glm::vec2(curand_uniform(rng), curand_uniform(rng));
-		glm::vec3 wi = getNormalRot(isect.normal) * tsukisample::toHemisphereCosineWeighted(xi);
-		throughput *= glm::vec3(materials[materialId].colorFac);
+
+		//Clamp roughness away from 0 so alpha != 0 (sampleWh/D would otherwise produce NaNs/Inf)
+		float roughness = fmaxf(material.metallicRoughnessFac.g, 1e-3f);
+
+		glm::vec3 localWo = invRot * -ray.dir;
+		//Viewer must be in the upper hemisphere for the microfacet model to be valid
+		if (localWo.z <= 0.f) { throughput = glm::vec3(0); break; }
+
+		glm::vec3 localWh = tsukibsdf::sampleWh(roughness, localWo, xi);
+		glm::vec3 localWi = glm::reflect(-localWo, localWh);
+
+		//Reject below-horizon samples: bsdf divides by cosThetaI = localWi.z, which would go negative/NaN
+		if (localWi.z <= 0.f) { throughput = glm::vec3(0); break; }
+
+		glm::vec3 wi = rot * localWi;
+
+		float pdf = tsukibsdf::pdfTorranceSparrow(roughness, localWo, localWh);
+		if (!(pdf > 0.f)) { throughput = glm::vec3(0); break; } //Catches 0, negative, and NaN pdf
+
+		glm::vec3 bsdf = tsukibsdf::bsdfTorranceSparrow(localWo, localWi, glm::vec3(material.colorFac), material.metallicRoughnessFac.r, roughness);
+		throughput *= bsdf * localWi.z / pdf;
+
+		//Backstop: never let a stray NaN/Inf into the accumulator (it would poison the pixel permanently)
+		if (!isfinite(throughput.x) || !isfinite(throughput.y) || !isfinite(throughput.z)) { throughput = glm::vec3(0); break; }
+
 		ray.origin = rayAt(ray, isect.t) + isect.normal * EPSILON;
 		ray.dir = wi;
 	}
