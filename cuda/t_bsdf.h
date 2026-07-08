@@ -11,7 +11,7 @@ namespace tsukibsdf {
 	//TODO: Implement anisotropy (?)
 	__device__ inline glm::vec3 sampleWh(float roughness, glm::vec3 wo, glm::vec2 xi) {
 		//Perfectly specular
-		if (roughness == 0.f) { return glm::reflect(-wo, glm::vec3(0, 0, 1)); }
+		if (roughness == 0.f) { return glm::vec3(0, 0, 1); }
 
 		float alpha = roughness * roughness;
 
@@ -28,9 +28,9 @@ namespace tsukibsdf {
 		return glm::normalize(glm::vec3(alpha * whStd.x, alpha * whStd.y, fmaxf(0.f, whStd.z)));
 	}
 
-	__device__ inline glm::vec3 bsdfTorranceSparrow(glm::vec3 wo, glm::vec3 wi, glm::vec3 albedo, float metallic, float roughness) {
+	__device__ inline glm::vec3 bsdfTorranceSparrow(glm::vec3 wo, glm::vec3 wi, glm::vec3 f0, float roughness) {
 		//Perfectly specular case
-		if (roughness == 0.f) { return albedo * fabsf(wi.z); }
+		if (roughness == 0.f) { return f0 * fabsf(wi.z); }
 
 		//Wi goes below the horizon
 		if (wi.z < 0.f) { return glm::vec3(0); }
@@ -42,10 +42,6 @@ namespace tsukibsdf {
 
 		float dotWoWh = fabsf(glm::dot(wo, wh));
 		float dotNorWh = fabsf(wh.z); //We're in tangent space, so the normal is (0, 0, 1)
-
-		//Head-on material reflectivity
-		//glm::vec3 f0 = (1.f - metallic) * glm::vec3(.04f) + metallic * albedo;
-		glm::vec3 f0 = albedo;
 
 		//GGX D
 		float d;
@@ -78,13 +74,11 @@ namespace tsukibsdf {
 		float cosThetaO = wo.z;
 		float cosThetaI = wi.z;
 
-		glm::vec3 ks = f;
-		glm::vec3 kd = (1.f - metallic) * (glm::vec3(1) - ks);
 		//return (d * g * f / (4.f * cosThetaO * cosThetaI)) + kd * (albedo / PI);
 
 		//Clamp the denominator cosines away from 0 to avoid Inf/NaN at grazing angles
 		float denom = 4.f * fmaxf(cosThetaO, 1e-4f) * fmaxf(cosThetaI, 1e-4f);
-		return d * g * albedo / denom;
+		return d * g * f / denom;
 	}
 
 	__device__ inline float pdfTorranceSparrow(float roughness, glm::vec3 wo, glm::vec3 wh) {
@@ -111,5 +105,29 @@ namespace tsukibsdf {
 		float d = alpha2 / (PI * denom * denom);
 
 		return g1 * d / (4.f * dotNorWo);
+	}
+
+	__device__ inline glm::vec3 bsdfCookTorrance(glm::vec3 wo, glm::vec3 wi, glm::vec3 albedo, float metallic, float roughness) {
+		glm::vec3 wh = glm::normalize(wo + wi);
+		float dotWoWh = glm::dot(wo, wh);
+
+		glm::vec3 f0 = (1.f - metallic) * glm::vec3(.04) + metallic * albedo;
+
+		glm::vec3 f = f0 + (glm::vec3(1) - f0) * __powf(1.f - dotWoWh, 5.f);
+
+		glm::vec3 ks = f;
+		glm::vec3 kd = (1.f - metallic) * (glm::vec3(1) - ks);
+
+		//bsdfTorranceSparrow already applies Fresnel internally, so don't multiply by ks again
+		return bsdfTorranceSparrow(wo, wi, f0, roughness) + kd * albedo / PI;
+	}
+
+	__device__ inline float pdfCookTorrance(float metallic, float roughness, glm::vec3 wo, glm::vec3 wi) {
+		float prGlossy = .4f + .6f * metallic;
+
+		//pdfTorranceSparrow expects the half-vector, not wi
+		glm::vec3 wh = glm::normalize(wo + wi);
+
+		return prGlossy * pdfTorranceSparrow(roughness, wo, wh) + (1.f - prGlossy) * (wi.z / PI);
 	}
 };

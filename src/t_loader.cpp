@@ -48,7 +48,7 @@ void TsukiGLTF::clear() { //TODO: Verify
 //TSUKIUTIL
 //===================================================================================================================
 std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf(TsukiEngine *engine, std::filesystem::path filePath) {
-	std::cerr << "Loading GLTF: " << filePath << std::endl;
+	std::cerr << "Loading glTF: " << filePath << std::endl;
 
 	std::shared_ptr<TsukiGLTF> scene = std::make_shared<TsukiGLTF>();
 
@@ -58,7 +58,9 @@ std::optional <std::shared_ptr<TsukiGLTF>> tsukiutil::loadGltf(TsukiEngine *engi
 
 	TsukiGLTF &file = *scene.get();
 
-	fastgltf::Parser parser;
+	constexpr auto gltfExtensions = fastgltf::Extensions::KHR_materials_emissive_strength;
+
+	fastgltf::Parser parser(gltfExtensions);
 	constexpr auto gltfOptions = fastgltf::Options::DontRequireValidAssetMember |
 		fastgltf::Options::AllowDouble | fastgltf::Options::LoadGLBBuffers | fastgltf::Options::LoadExternalBuffers;
 
