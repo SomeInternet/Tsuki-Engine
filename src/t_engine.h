@@ -237,7 +237,7 @@ public:
 	std::vector<BVHNode *> blasPtrs; //Host-side copy of the per-mesh BVH device pointers (hostAS.d_bvh lives on the device)
 
 	TsukiRenderMode _renderMode{ TsukiRenderMode::TSUKI_RENDER_MODE_VIEWPORT_FORWARD };
-	ToneMapMode _toneMapMode{ ToneMapMode::TONE_REINHARDT };
+	ToneMapMode _toneMapMode{ ToneMapMode::TONE_REINHARD };
 
 	//IMGUI
 	VkFence _immFence;

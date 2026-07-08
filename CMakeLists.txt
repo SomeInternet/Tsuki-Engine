@@ -49,6 +49,13 @@ set(IMGUI_SOURCES
 add_subdirectory("${NFD_DIR}" "${CMAKE_BINARY_DIR}/nfd")
 
 # ---------------------------------------------------------------------------
+# fastgltf (compiled from source; provides the "fastgltf::fastgltf" target).
+# Building it as part of our configuration keeps it in sync and avoids the
+# "prebuild the .lib yourself" failure mode. Tests/examples/docs default OFF.
+# ---------------------------------------------------------------------------
+add_subdirectory("${FASTGLTF_DIR}" "${CMAKE_BINARY_DIR}/fastgltf")
+
+# ---------------------------------------------------------------------------
 # Engine sources
 # ---------------------------------------------------------------------------
 file(GLOB SRC_SOURCES    CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/src/*.cpp")
@@ -82,25 +89,21 @@ target_include_directories(TsukiEngine PRIVATE
     "${IMGUI_DIR}"
     "${STB_DIR}"
     "${VMA_DIR}/include"
-    "${FASTGLTF_DIR}/include"
     "${NFD_DIR}/src/include")
+# fastgltf's include dir comes transitively from the fastgltf::fastgltf target.
 # Vulkan::Vulkan and CUDA::cudart bring their own include dirs transitively.
 
 # ---------------------------------------------------------------------------
 # Link libraries
 # ---------------------------------------------------------------------------
-# fastgltf ships separate Debug/Release static libs; pick per configuration.
 target_link_directories(TsukiEngine PRIVATE
-    "${GLFW_DIR}/lib-vc2022"
-    "$<$<CONFIG:Debug>:${FASTGLTF_DIR}/build/Debug>"
-    "$<$<NOT:$<CONFIG:Debug>>:${FASTGLTF_DIR}/build/Release>")
+    "${GLFW_DIR}/lib-vc2022")
 
 target_link_libraries(TsukiEngine PRIVATE
     Vulkan::Vulkan
     CUDA::cudart
     glfw3
-    fastgltf
-    fastgltf_simdjson
+    fastgltf::fastgltf   # simdjson is linked in transitively
     nfd)
 
 # ---------------------------------------------------------------------------

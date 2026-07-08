@@ -1,5 +1,5 @@
 enum ToneMapMode {
-    TONE_REINHARDT, TONE_ACES, TONE_AGX
+    TONE_REINHARD, TONE_ACES, TONE_AGX
 };
 
 [[vk::binding(0, 0)]] //Binding 0, descriptor set 0
@@ -8,7 +8,7 @@ RWTexture2D<float4> image;
 [vk::push_constant]
 ToneMapMode toneMapMode;
 
-float3 reinhardt(float3 color) {
+float3 reinhard(float3 color) {
     return color / (color + float3(1));
 }
 
@@ -98,8 +98,8 @@ void main(uint3 globalId: SV_DispatchThreadID, uint3 localId: SV_GroupThreadID) 
         float3 color;
         ToneMapMode mode = toneMapMode;
         switch (mode) {
-        case ToneMapMode::TONE_REINHARDT:
-            color = reinhardt(image[globalId.xy].rgb);
+        case ToneMapMode::TONE_REINHARD:
+            color = reinhard(image[globalId.xy].rgb);
             break;
 
         case ToneMapMode::TONE_ACES:

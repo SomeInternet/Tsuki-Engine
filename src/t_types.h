@@ -35,7 +35,6 @@
 		}																																		\
 	} while (0)
 
-#define PI 3.14159265358979f
 #define EPSILON .0001f
 
 struct QueueFamilyIndices {
@@ -102,7 +101,7 @@ enum ViewMode {
 };
 
 enum ToneMapMode {
-	TONE_REINHARDT, TONE_ACES, TONE_AGX
+	TONE_REINHARD, TONE_ACES, TONE_AGX
 };
 
 struct DrawPushConstants {
