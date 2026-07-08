@@ -102,7 +102,7 @@ enum ViewMode {
 };
 
 enum ToneMapMode {
-	TONE_REINHARDT, TONE_ACES
+	TONE_REINHARDT, TONE_ACES, TONE_AGX
 };
 
 struct DrawPushConstants {

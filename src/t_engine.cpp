@@ -497,7 +497,7 @@ void TsukiEngine::run() {
                     }
                 }
                 {
-                    std::vector<const char *> items = { "Reinhardt", "ACES"};
+                    std::vector<const char *> items = { "Reinhardt", "ACES", "AgX"};
                     static const char *selected = items[0];
 
                     if (ImGui::BeginCombo("Tone Mapping Mode", selected)) {
