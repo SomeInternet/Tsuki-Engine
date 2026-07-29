@@ -110,7 +110,7 @@ target_link_libraries(TsukiEngine PRIVATE
 # Compile options
 # ---------------------------------------------------------------------------
 set_target_properties(TsukiEngine PROPERTIES
-    CUDA_ARCHITECTURES "89"
+    CUDA_ARCHITECTURES "120"
     CUDA_SEPARABLE_COMPILATION ON)
 
 target_compile_options(TsukiEngine PRIVATE

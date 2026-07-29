@@ -2325,6 +2325,7 @@ bool TsukiEngine::isDeviceSuitable(VkPhysicalDevice device) { //TODO: Update
     //2) Supports graphics and present queue families
     //3) Supports our required device extensions
     //4) Supports our required features
+    //5) Is a discrete GPU with manufacturer NVIDIA
 
     QueueFamilyIndices indices = findQueueFamilies(device);
 
@@ -2369,8 +2370,13 @@ bool TsukiEngine::isDeviceSuitable(VkPhysicalDevice device) { //TODO: Update
         vk13.synchronization2 &&
         vk13.dynamicRendering &&
         eds.extendedDynamicState;
+    
+    VkPhysicalDeviceProperties physicalDeviceProperties;
+    vkGetPhysicalDeviceProperties(device, &physicalDeviceProperties);
+    bool isNvidia = physicalDeviceProperties.vendorID == 4318;
+    bool isDiscrete = physicalDeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
 
-    return indices.isComplete() && extensionsSupported && swapChainAdequate && supportsRequiredFeatures;
+    return indices.isComplete() && extensionsSupported && swapChainAdequate && supportsRequiredFeatures && isNvidia && isDiscrete;
 }
 
 bool TsukiEngine::checkDeviceExtensionSupport(VkPhysicalDevice device) {
@@ -2451,9 +2457,12 @@ VkSurfaceFormatKHR TsukiEngine::chooseSwapSurfaceFormat(const std::vector<VkSurf
 
 VkPresentModeKHR TsukiEngine::chooseSwapPresentMode(const std::vector<VkPresentModeKHR> &availablePresentModes) {
     for (const auto &availablePresentMode : availablePresentModes) {
-        if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
+        if (availablePresentMode == VK_PRESENT_MODE_IMMEDIATE_KHR) {
             return availablePresentMode;
         }
+        /*if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
+            return availablePresentMode;
+        }*/
     }
 
     //FIFO is the only present mode guaranteed to be available
