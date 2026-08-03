@@ -143,4 +143,6 @@ struct TsukiCudaData { //TODO: This bottlenecks performance. I might wanna impro
 	TsukiCudaAccelerationStructures *d_accelerationStructures{ nullptr };
 
 	curandState *d_curandStates{ nullptr };
+
+	float drawTime{ 0.f };
 };

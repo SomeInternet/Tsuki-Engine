@@ -248,8 +248,13 @@ public:
 	DeletionQueue _mainDeletionQueue;
 	VmaAllocator _allocator;
 
+	//Benchmarking
+	VkQueryPool timestampPool;
+
+
 	static TsukiEngine &Get();
 	FrameData &getCurrFrame() { return _frames[_frameNum % FRAMES_IN_FLIGHT]; }
+	std::vector<uint64_t> timestamps = { 0, 0 };
 
 	//MAIN FUNCTIONS
 	//===================================================================================================================

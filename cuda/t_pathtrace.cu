@@ -407,7 +407,15 @@ void tsukicudapathtrace::testPathtrace(TsukiCudaData *cudaData, int width, int h
 	cudaWaitExternalSemaphoresAsync(&(cudaData->_cudaCopyFinishedSemaphore), &waitParams, 1);
 
 	//TODO: Launch pathtracing kernel(s)
-	Ray *rays;
+	//Ray *rays;
+
+	cudaEvent_t start, stop;
+
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
+
+	cudaEventRecord(start, 0);
+
 	TsukiLaunchDims dims;
 	dims.gridDim = dim3(divup(width, BLOCKWIDTH), divup(height, BLOCKHEIGHT), 1);
 	dims.blockDim = dim3(BLOCKWIDTH, BLOCKHEIGHT, 1);
@@ -421,8 +429,14 @@ void tsukicudapathtrace::testPathtrace(TsukiCudaData *cudaData, int width, int h
 	}
 	
 
+	cudaEventRecord(stop, 0);
+
+	cudaEventSynchronize(stop);
+
 	CUDA_CHECK(cudaGetLastError());
 	CUDA_CHECK(cudaDeviceSynchronize());
+
+	cudaEventElapsedTime(&(cudaData->drawTime), start, stop);
 
 	++cudaData->numSamples;
 

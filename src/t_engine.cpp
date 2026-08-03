@@ -436,6 +436,16 @@ void TsukiEngine::draw() {
     
     VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submit, getCurrFrame()._renderFence));
 
+    if (_renderMode != TsukiRenderMode::TSUKI_RENDER_MODE_PATHTRACED_CUDA) {
+        vkGetQueryPoolResults(_device, timestampPool, 0, 2, 2 * sizeof(uint64_t), timestamps.data(), sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+        VkPhysicalDeviceProperties physicalDeviceProperties;
+        vkGetPhysicalDeviceProperties(_physicalDevice, &physicalDeviceProperties);
+        _benchmarker.meshDrawTime = static_cast<float>(timestamps[1] - timestamps[0]) * physicalDeviceProperties.limits.timestampPeriod / 1000000.0f;
+    }
+    else {
+        _benchmarker.meshDrawTime = cudaData.drawTime;
+    }
+
     //TODO: Present
     VkPresentInfoKHR presentInfo{};
     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -592,7 +602,6 @@ void TsukiEngine::run() {
 //PUBLIC HELPERS
 //===================================================================================================================
 void TsukiEngine::drawBackground(VkCommandBuffer commandBuffer, VkImage image) {
-    //Clear the im#if CLEAR_VALUE
     VkClearColorValue clearValue;
     clearValue = { { .1f, .1f, .1f, 1.0f } };
     VkImageSubresourceRange clearRange = tsukiinit::tImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
@@ -1909,7 +1918,13 @@ void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer, VkImageView imageV
     VkRenderingAttachmentInfo depthAttachment = tsukiinit::tDepthAttachmentInfo(_depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
 
     VkRenderingInfo renderInfo = tsukiinit::tRenderingInfo(_drawExtent, &colorAttachment, &depthAttachment);
+
+    vkCmdResetQueryPool(commandBuffer, timestampPool, 0, static_cast<uint32_t>(timestamps.size()));
+
     vkCmdBeginRendering(commandBuffer, &renderInfo);
+
+    //Frame start timestamp
+    vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestampPool, 0);
 
     VkViewport viewport{};
     viewport.x = 0;
@@ -1979,6 +1994,9 @@ void TsukiEngine::drawGeometry(VkCommandBuffer commandBuffer, VkImageView imageV
     for (auto &r : _mainDrawContext.transparentObjects) {
         draw(r);
     }
+
+    //End of frame timestamp
+    vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestampPool, 1);
 
     vkCmdEndRendering(commandBuffer);
 
@@ -2253,6 +2271,17 @@ void TsukiEngine::createLogicalDevice() {
     vkGetDeviceQueue(_device, indices.graphicsFamily.value(), 0, &_graphicsQueue);
     _graphicsQueueFamily = indices.graphicsFamily.value();
     //vkGetDeviceQueue(_device, indices.presentFamily.value(), 0, &presentQueue);
+
+    //Initialize query pool information for timestamps
+    VkQueryPoolCreateInfo queryPoolInfo{};
+    queryPoolInfo.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+    queryPoolInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
+    queryPoolInfo.queryCount = 2; //TODO: Might need more...
+    VK_CHECK(vkCreateQueryPool(_device, &queryPoolInfo, nullptr, &timestampPool));
+
+    _mainDeletionQueue.push([&, this]() {
+        vkDestroyQueryPool(_device, timestampPool, nullptr);
+        });
 }
 
 //VULKAN SETUP HELPERS
@@ -2326,6 +2355,7 @@ bool TsukiEngine::isDeviceSuitable(VkPhysicalDevice device) { //TODO: Update
     //3) Supports our required device extensions
     //4) Supports our required features
     //5) Is a discrete GPU with manufacturer NVIDIA
+    //6) Supports timestamp queries (for benchmarking)
 
     QueueFamilyIndices indices = findQueueFamilies(device);
 
@@ -2376,7 +2406,21 @@ bool TsukiEngine::isDeviceSuitable(VkPhysicalDevice device) { //TODO: Update
     bool isNvidia = physicalDeviceProperties.vendorID == 4318;
     bool isDiscrete = physicalDeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
 
-    return indices.isComplete() && extensionsSupported && swapChainAdequate && supportsRequiredFeatures && isNvidia && isDiscrete;
+    VkPhysicalDeviceLimits deviceLimits = physicalDeviceProperties.limits;
+    if (physicalDeviceProperties.limits.timestampPeriod == 0) {
+        return false;
+    }
+
+    bool supportsTimestamps = physicalDeviceProperties.limits.timestampPeriod != 0;
+    bool supportsTimestampQueries = physicalDeviceProperties.limits.timestampComputeAndGraphics;
+    if (!supportsTimestampQueries) {
+        VkQueueFamilyProperties queueFamilyProperties;
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &(indices.graphicsFamily.value()), &queueFamilyProperties);
+        supportsTimestampQueries = queueFamilyProperties.timestampValidBits != 0;
+    }
+
+    return indices.isComplete() && extensionsSupported && swapChainAdequate && supportsRequiredFeatures && isNvidia && isDiscrete && 
+        supportsTimestamps && supportsTimestampQueries;
 }
 
 bool TsukiEngine::checkDeviceExtensionSupport(VkPhysicalDevice device) {
