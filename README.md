@@ -2,10 +2,12 @@
 Tsuki Engine
 =====================
 T Fong `SomeInternetBoi`  
-[My Website](tzfong.com), [My LinkedIn](https://www.linkedin.com/in/tzfong/)
+[My Website](https://tzfong.com/), [My LinkedIn](https://www.linkedin.com/in/tzfong/)
 
 A light Vulkan-CUDA interop pathtracer engine, with a rasterized Vulkan viewport. 
 Shaders are written in Slang.
+
+**This README is a little out of date! I was grinding this project out to have something done by SIGGRAPH. Pardon the dust as I update it!**
 
 TODO
 --------------------
