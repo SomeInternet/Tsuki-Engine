@@ -16,13 +16,13 @@ TODO
 4) CPU 2-level acceleration structure (BLAS, TLAS) construction
 5) CUDA Ray-AABB, Ray-Triangle intersection
 6) Basic CUDA AS traversal and raytracing
+7) Naive pathtracing
+8) Cook-Torrance BRDF
 
 **TODO**
-1) Naive pathtracing
-2) Less copies for `TsukiEngine::draw()`
-3) Improved rendering system, TLAS reconstruction
-4) MIS
-5) glTF extensions for dialectric materials
+1) Improved rendering system, TLAS reconstruction
+2) MIS
+3) glTF extensions for dialectric materials
 
 Stretch Goals
 --------------------
@@ -79,6 +79,17 @@ creating descriptor set layouts via `DescriptorLayoutBuilder`, and updating desc
 `t_initializers.h/cpp` - defines helpers to reduce boilerplate for `___CreateInfo` structs
 
 `t_images.h/cpp` - defines wrappers for managing images via the `AllocatedImage` class
+
+`t_cudacommon.h` - defines data structures for meshes in CUDA and sharing resources with Vulkan
+
+`t_interop.h/cpp` - defines functions for extracting memory and semaphore from Vulkan
+
+Setup
+--------------------
+Make sure you have the CUDA toolkit installed and the Vulkan SDK. This project was written for Windows devices with NVIDIA graphics cards, and will not work
+otherwise!
+
+You may need to tweak the compute architectures in `CMakeLists.txt`. I noticed that migrating to a new computer caused compilation to fail because of that.
 
 Attributions
 --------------------
