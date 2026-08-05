@@ -74,10 +74,17 @@ void tsukiutil::getCudaExternalMemory(TsukiEngine *engine, void **devicePointer,
 	//so offset is frequently non-zero; mapping at offset 0 would point CUDA at the wrong data.
 	cudaExternalMemoryHandleDesc externalMemoryHandleDesc{};
 
+	//vkGetMemoryWin32HandleKHR returns a new handle owned by us. For the OpaqueWin32 type CUDA does
+	//NOT take ownership on import, so we must CloseHandle it ourselves once the import is done,
+	//otherwise every import leaks a Win32 handle (in addition to the cudaExternalMemory_t).
+	HANDLE memoryHandle = getVkMemoryHandle(engine, vkMemory);
+
 	externalMemoryHandleDesc.type = cudaExternalMemoryHandleTypeOpaqueWin32;
 	externalMemoryHandleDesc.size = memorySize;
-	externalMemoryHandleDesc.handle.win32.handle = (HANDLE)getVkMemoryHandle(engine, vkMemory);
+	externalMemoryHandleDesc.handle.win32.handle = memoryHandle;
 	CUDA_CHECK(cudaImportExternalMemory(cudaMemory, &externalMemoryHandleDesc));
+
+	//CloseHandle(memoryHandle);
 
 	cudaExternalMemoryBufferDesc externalMemoryBufferDesc{};
 	externalMemoryBufferDesc.offset = offset;

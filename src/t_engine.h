@@ -235,6 +235,7 @@ public:
 	TsukiCudaData cudaData;
 	TsukiCudaAccelerationStructures hostAS{};
 	std::vector<BVHNode *> blasPtrs; //Host-side copy of the per-mesh BVH device pointers (hostAS.d_bvh lives on the device)
+	std::vector<TsukiCudaMesh> _hostMeshes; //Host-side copy of the per-mesh CUDA data; keeps the imported cudaExternalMemory_t handles alive so they can be destroyed on teardown
 
 	TsukiRenderMode _renderMode{ TsukiRenderMode::TSUKI_RENDER_MODE_VIEWPORT_FORWARD };
 	ToneMapMode _toneMapMode{ ToneMapMode::TONE_REINHARD };
@@ -309,6 +310,7 @@ private:
 	void initCudaData();
 	void uploadCudaSceneData();
 	void freeCudaSceneData();
+	void freeCudaMeshExternalMemory(); //Destroys the imported per-mesh cudaExternalMemory_t handles held in _hostMeshes
 
 	void initImgui();
 	void initImguiTheme();

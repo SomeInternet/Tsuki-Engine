@@ -115,7 +115,8 @@ set_target_properties(TsukiEngine PROPERTIES
 
 target_compile_options(TsukiEngine PRIVATE
     $<$<COMPILE_LANGUAGE:CXX>:/utf-8>
-    $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+    $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>)
 
 # Assets/Models/Shaders are loaded via paths relative to the project root, so
 # launch the debugger from there.

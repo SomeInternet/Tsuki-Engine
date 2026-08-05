@@ -290,6 +290,7 @@ void TsukiEngine::cleanup() {
         vkDeviceWaitIdle(_device);
 
         freeCudaSceneData();
+        CUDA_CHECK(cudaFree(cudaData.d_meshes));
 
         loadedScenes.clear();
 
@@ -303,6 +304,20 @@ void TsukiEngine::cleanup() {
         }
 
         materialPipelines.clearResources(_device);
+
+        //Release the Vulkan->CUDA external memory imports before their Vulkan-owned backing storage.
+        //cudaDestroyExternalMemory frees both the handle and the mapped buffer from
+        //cudaExternalMemoryGetMappedBuffer; the underlying memory is released by destroyBuffer below.
+        if (cudaData.materialBufferMemory) {
+            CUDA_CHECK(cudaDestroyExternalMemory(cudaData.materialBufferMemory));
+            cudaData.materialBufferMemory = nullptr;
+            cudaData.d_materialBuffer = nullptr;
+        }
+        if (cudaData.imageBufferMemory) {
+            CUDA_CHECK(cudaDestroyExternalMemory(cudaData.imageBufferMemory));
+            cudaData.imageBufferMemory = nullptr;
+            cudaData.imageBuffer = nullptr;
+        }
 
         destroyBuffer(cudaImageBuffer);
 
@@ -1521,9 +1536,12 @@ void TsukiEngine::uploadCudaSceneData() {
 
     const int numMeshes = static_cast<int>(meshes.size());
 
-    std::vector<TsukiCudaMesh> hostMeshes(numMeshes);
-
-    //We also need to keep the cudaExternalMemory_t handles alive for the lifetime of the scene
+    //Destroy handles from any previous upload before overwriting them, then reuse the member
+    //vector so the imported cudaExternalMemory_t handles stay alive for the lifetime of the scene
+    //(they are released in freeCudaMeshExternalMemory)
+    freeCudaMeshExternalMemory();
+    _hostMeshes.assign(numMeshes, TsukiCudaMesh{});
+    std::vector<TsukiCudaMesh> &hostMeshes = _hostMeshes;
     
     //Lambda to convert Vulkan VMA buffers to CUDA external memory
     auto importBuffer = [&](AllocatedBuffer &vkBuffer, size_t byteSize,
@@ -1620,7 +1638,7 @@ void TsukiEngine::uploadCudaSceneData() {
 
     //UPLOAD BLAS'S INFORMATION TO THE DEVICE
 
-    //Allocate / free the per-mesh acceleration structure container.
+    //Allocate/free the per-mesh acceleration structure container
 
     const int numBVH = _blas.size();
     hostAS.numBVH = numBVH;
@@ -1722,7 +1740,7 @@ void TsukiEngine::freeCudaSceneData() {
     CUDA_CHECK(cudaFree(hostAS.d_bvhSizes));
     CUDA_CHECK(cudaFree(hostAS.d_tlas));
 
-    //Free the trnasofrmations and inverse transformations
+    //Free the transformations and inverse transformations
     CUDA_CHECK(cudaFree(hostAS.d_transforms));
     CUDA_CHECK(cudaFree(hostAS.d_invTransforms));
 
@@ -1731,6 +1749,25 @@ void TsukiEngine::freeCudaSceneData() {
 
     //Free the camera
     CUDA_CHECK(cudaFree(cudaData.d_camera));
+
+    //Release the per-mesh Vulkan->CUDA external memory imports (index/pos/normal/color/uv/materialLookup).
+    //These are registrations, not CUDA-owned allocations: the backing storage belongs to Vulkan/VMA,
+    //but the cudaExternalMemory_t handles and their mapped buffers must be destroyed explicitly
+    freeCudaMeshExternalMemory();
+}
+
+void TsukiEngine::freeCudaMeshExternalMemory() {
+    for (TsukiCudaMesh &cm : _hostMeshes) {
+        //cudaDestroyExternalMemory releases both the handle and the buffer returned by
+        //cudaExternalMemoryGetMappedBuffer, so the mapped pointers must not be used afterwards
+        if (cm.indexBufferMemory)          CUDA_CHECK(cudaDestroyExternalMemory(cm.indexBufferMemory));
+        if (cm.posMemory)                  CUDA_CHECK(cudaDestroyExternalMemory(cm.posMemory));
+        if (cm.normalMemory)               CUDA_CHECK(cudaDestroyExternalMemory(cm.normalMemory));
+        if (cm.colorMemory)                CUDA_CHECK(cudaDestroyExternalMemory(cm.colorMemory));
+        if (cm.uvMemory)                   CUDA_CHECK(cudaDestroyExternalMemory(cm.uvMemory));
+        if (cm.MaterialLookupBufferMemory) CUDA_CHECK(cudaDestroyExternalMemory(cm.MaterialLookupBufferMemory));
+    }
+    _hostMeshes.clear();
 }
 
 

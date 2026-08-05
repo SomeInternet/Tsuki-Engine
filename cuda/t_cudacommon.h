@@ -58,25 +58,25 @@ struct TsukiCudaCamera {
 
 struct TsukiCudaMesh {
 	int numIndices{ 0 };
-	cudaExternalMemory_t indexBufferMemory;
-	uint32_t *d_indexBuffer;
+	cudaExternalMemory_t indexBufferMemory{ nullptr };
+	uint32_t *d_indexBuffer{ nullptr };
 
 	int numVertices{ 0 };
-	cudaExternalMemory_t posMemory;
-	glm::vec4 *d_pos;
+	cudaExternalMemory_t posMemory{ nullptr };
+	glm::vec4 *d_pos{ nullptr };
 
-	cudaExternalMemory_t normalMemory;
-	glm::vec4 *d_normal;
+	cudaExternalMemory_t normalMemory{ nullptr };
+	glm::vec4 *d_normal{ nullptr };
 
-	cudaExternalMemory_t colorMemory;
-	glm::vec4 *d_color;
+	cudaExternalMemory_t colorMemory{ nullptr };
+	glm::vec4 *d_color{ nullptr };
 
-	cudaExternalMemory_t uvMemory;
-	glm::vec2 *d_uv;
+	cudaExternalMemory_t uvMemory{ nullptr };
+	glm::vec2 *d_uv{ nullptr };
 
 	int materialLookupBufferSize{ 0 };
-	cudaExternalMemory_t MaterialLookupBufferMemory;
-	int *d_materialLookupBuffer;
+	cudaExternalMemory_t MaterialLookupBufferMemory{ nullptr };
+	int *d_materialLookupBuffer{ nullptr };
 };
 
 enum class TsukiMaterialPass : uint8_t {
@@ -120,7 +120,7 @@ struct TsukiCudaData { //TODO: This bottlenecks performance. I might wanna impro
 
 	cudaExternalSemaphore_t _cudaASBuildFinishedSemaphore;
 
-	cudaExternalMemory_t imageBufferMemory;
+	cudaExternalMemory_t imageBufferMemory{ nullptr };
 	void *imageBuffer{ nullptr };
 	int imageBufferSize{ 0 };
 
@@ -133,7 +133,7 @@ struct TsukiCudaData { //TODO: This bottlenecks performance. I might wanna impro
 
 	//The material buffer is exported to CUDA from Vulkan
 	//Those who forget it has to be loaded to Vulkan for the rasterized view...
-	cudaExternalMemory_t materialBufferMemory;
+	cudaExternalMemory_t materialBufferMemory{ nullptr };
 	TsukiMaterialData *d_materialBuffer{ nullptr };
 
 	TsukiPathtraceDebug debugMode{ TsukiPathtraceDebug::DEBUG_NONE };
